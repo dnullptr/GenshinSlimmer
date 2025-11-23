@@ -52,29 +52,6 @@ Usage
 5. Review the preview list and the space savings reported.
 6. Confirm to delete, or cancel to exit without changes.
 
-Command-line / Non-interactive examples (v3)
-- Dry-run (preview only, no deletion):
-  .\GenshinSlimmer.ps1 -Path "C:\Program Files\Genshin Impact\Genshin Impact game" -DryRun
-- Delete a single region non-interactively with auto-confirm:
-  .\GenshinSlimmer.ps1 -Path "C:\Program Files\Genshin Impact\Genshin Impact game" -Region Mondstadt -AutoConfirm
-- Delete Milliastra Wonderland audio files (preview first):
-  .\GenshinSlimmer.ps1 -Path "C:\Program Files\Genshin Impact\Genshin Impact game" -DryRun -DeleteMilliastraAudio
-- Remove videos for the unused Traveler (example: remove Aether files):
-  .\GenshinSlimmer.ps1 -Path "C:\Program Files\Genshin Impact\Genshin Impact game" -Traveler Aether -DryRun
-- Backup then remove unused Traveler videos with auto-confirm:
-  .\GenshinSlimmer.ps1 -Path "C:\Program Files\Genshin Impact\Genshin Impact game" -Traveler Lumine -Backup -AutoConfirm
-
-Available options (v3)
-- -Path <string> : Path to the "Genshin Impact game" folder (optional in interactive mode).
-- -Region <string|All> : Region name (e.g., Mondstadt, Liyue) or All to target all supported regions.
-- -DryRun : Show what would be deleted without removing files.
-- -AutoConfirm : Skip interactive confirmation and perform removal (use with caution; recommended to use with -Backup).
-- -Backup : Create a timestamped backup (zip) or move to Recycle Bin before deleting files.
-- -LogFile <string> : Write detailed output and actions to a log file.
-- -ExcludePatterns <string[]> : File patterns to exclude from deletion.
-- -DeleteMilliastraAudio : Scan for and include Milliastra Wonderland audio files in the preview and deletion (opt-in).
-- -Traveler <Aether|Lumine|Both> : Select which Traveler's videos to include in the target set. Choosing Aether or Lumine removes videos for that Traveler (use DryRun first).
-- -WhatIf : PowerShell-compatible WhatIf behavior where implemented.
 
 Behavior and safety notes
 - The script targets pre-rendered cutscene / video and named audio assets. In general, the game will skip missing videos and fall back to in-engine sequences. However, deleting files is irreversible without a backup.
