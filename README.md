@@ -1,4 +1,4 @@
-```markdown
+
 # GenshinSlimmer
 
 GenshinSlimmer is a small PowerShell utility that helps reclaim disk space by safely removing pre-rendered cutscene videos from completed regions in Genshin Impact.
@@ -62,4 +62,3 @@ Disclaimer
 This script deletes game files. While it is intended to be safe for video assets (the game typically skips missing cutscene files), always confirm the preview and consider backing up files before deletion. Use at your own risk.
 
 
-```
