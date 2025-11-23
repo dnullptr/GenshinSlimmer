@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-    GenshinSlimmer v2
-    Safely deletes cutscenes and UGC cache to save disk space.
+    GenshinSlimmer v3
+    Safely deletes cutscenes, UGC cache, and unused gendered videos to save disk space.
     
     Author: dnullptr
 #>
@@ -14,7 +14,7 @@ $RelPath_UGC       = "AudioAssets\BeyondUGC"
 function Get-GamePath {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v2 Setup" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v3 Setup" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host ""
@@ -52,10 +52,14 @@ $PatternsSumeru    = @("*Sumeru*")
 $PatternsFontaine  = @("*Fontaine*")
 $PatternsNatlan    = @("*Natlan*")
 
+# New Gender Patterns
+$PatternsBoy       = @("*Boy.usm")
+$PatternsGirl      = @("*Girl.usm")
+
 function Show-Menu {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v2" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v3" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host "Target Base: ...\GenshinImpact_Data\StreamingAssets" -ForegroundColor DarkGray
@@ -69,7 +73,10 @@ function Show-Menu {
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     Write-Host "6. UGC Cache (Miliastra Wonderland / BeyondUGC)" -ForegroundColor Magenta
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "7. DELETE ALL (Regions 1-5 + UGC)" -ForegroundColor Red
+    Write-Host "7. Delete 'Boy' (Aether) Videos (Global)" -ForegroundColor Cyan
+    Write-Host "8. Delete 'Girl' (Lumine) Videos (Global)" -ForegroundColor Cyan
+    Write-Host "-----------------------------------------" -ForegroundColor DarkGray
+    Write-Host "9. DELETE ALL (Regions 1-5 + UGC)" -ForegroundColor Red
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     Write-Host "Q. Quit"
     Write-Host "=========================================" -ForegroundColor Cyan
@@ -201,7 +208,15 @@ do {
             $selection = Get-MatchingFiles $RelPath_UGC @("*")
             $desc = "UGC Cache (BeyondUGC)"
         }
-        '7' { 
+        '7' {
+            $selection = Get-MatchingFiles $RelPath_Videos $PatternsBoy
+            $desc = "Boy/Aether Videos (Global)"
+        }
+        '8' {
+            $selection = Get-MatchingFiles $RelPath_Videos $PatternsGirl
+            $desc = "Girl/Lumine Videos (Global)"
+        }
+        '9' { 
             # Combine ALL videos + ALL UGC
             $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan
             $selection += Get-MatchingFiles $RelPath_Videos $AllVideoPatterns
