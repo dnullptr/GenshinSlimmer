@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-    GenshinSlimmer v3
-    Safely deletes cutscenes, UGC cache, and unused gendered videos to save disk space.
+    GenshinSlimmer v4
+    Replaces large video files with empty "stubs" (0KB files) to save space 
+    without triggering missing file errors.
     
     Author: dnullptr
 #>
@@ -14,7 +15,7 @@ $RelPath_UGC       = "AudioAssets\BeyondUGC"
 function Get-GamePath {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v3 Setup" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v4 Setup" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host ""
@@ -59,12 +60,13 @@ $PatternsGirl      = @("*Girl.usm")
 function Show-Menu {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v3" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v4" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host "Target Base: ...\GenshinImpact_Data\StreamingAssets" -ForegroundColor DarkGray
+    Write-Host "Mode: STUBBING (Files are emptied, not deleted)" -ForegroundColor Magenta
     Write-Host ""
-    Write-Host "Select content to delete:"
+    Write-Host "Select content to stub (empty):"
     Write-Host "1. Mondstadt Videos (Matches *Mengde*, *MDAQ*, *Venti*)"
     Write-Host "2. Liyue Videos     (Matches *LiYue*, *LYAQ*)"
     Write-Host "3. Sumeru Videos    (Matches *Sumeru*)"
@@ -73,10 +75,10 @@ function Show-Menu {
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     Write-Host "6. UGC Cache (Miliastra Wonderland / BeyondUGC)" -ForegroundColor Magenta
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "7. Delete 'Boy' (Aether) Videos (Global)" -ForegroundColor Cyan
-    Write-Host "8. Delete 'Girl' (Lumine) Videos (Global)" -ForegroundColor Cyan
+    Write-Host "7. Stub 'Boy' (Aether) Videos (Global)" -ForegroundColor Cyan
+    Write-Host "8. Stub 'Girl' (Lumine) Videos (Global)" -ForegroundColor Cyan
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "9. DELETE ALL (Regions 1-5 + UGC)" -ForegroundColor Red
+    Write-Host "9. STUB ALL (Regions 1-5 + UGC)" -ForegroundColor Red
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     Write-Host "Q. Quit"
     Write-Host "=========================================" -ForegroundColor Cyan
@@ -106,20 +108,24 @@ function Get-MatchingFiles {
     }
 }
 
-function Process-Deletion {
+function Process-Stubbing {
     param (
-        [array]$FilesToDelete,
+        [array]$FilesToStub,
         [string]$Description
     )
 
-    if ($FilesToDelete.Count -eq 0) {
-        Write-Host "`nNo files found for: $Description" -ForegroundColor Yellow
+    # Filter out files that are already 0 bytes to avoid inflating stats
+    $ActiveFiles = $FilesToStub | Where-Object { $_.Length -gt 0 }
+
+    if ($ActiveFiles.Count -eq 0) {
+        Write-Host "`nNo stubbable files found for: $Description" -ForegroundColor Yellow
+        Write-Host "(Files are either missing or already optimized/empty)" -ForegroundColor DarkGray
         Read-Host "Press Enter to continue..."
         return
     }
 
     # --- CALCULATE SIZE ---
-    $totalBytes = ($FilesToDelete | Measure-Object -Property Length -Sum).Sum
+    $totalBytes = ($ActiveFiles | Measure-Object -Property Length -Sum).Sum
     $totalMB = [math]::Round($totalBytes / 1MB, 2)
     $totalGB = [math]::Round($totalBytes / 1GB, 2)
 
@@ -127,7 +133,7 @@ function Process-Deletion {
     Write-Host "`n-----------------------------------------" -ForegroundColor DarkGray
     Write-Host "Selection:         $Description"
     Write-Host "Files Found:       " -NoNewline
-    Write-Host "$($FilesToDelete.Count)" -ForegroundColor Yellow
+    Write-Host "$($ActiveFiles.Count)" -ForegroundColor Yellow
     Write-Host "Potential Savings: " -NoNewline
     if ($totalGB -gt 1) {
         Write-Host "$totalGB GB" -ForegroundColor Green
@@ -137,29 +143,33 @@ function Process-Deletion {
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     
     Write-Host "Preview:" -ForegroundColor Gray
-    $FilesToDelete.Name | Select-Object -First 5 | ForEach-Object { Write-Host " - $_" -ForegroundColor DarkGray }
-    if ($FilesToDelete.Count -gt 5) { Write-Host " ... and $($FilesToDelete.Count - 5) others." -ForegroundColor DarkGray }
+    $ActiveFiles.Name | Select-Object -First 5 | ForEach-Object { Write-Host " - $_" -ForegroundColor DarkGray }
+    if ($ActiveFiles.Count -gt 5) { Write-Host " ... and $($ActiveFiles.Count - 5) others." -ForegroundColor DarkGray }
 
     Write-Host ""
-    $confirmation = Read-Host "Are you sure you want to delete these files? (Y/N)"
+    Write-Host "This will replace the files with empty (0KB) stubs." -ForegroundColor Cyan
+    $confirmation = Read-Host "Are you sure? (Y/N)"
     
     if ($confirmation -eq 'Y' -or $confirmation -eq 'y') {
-        $deletedCount = 0
-        $deletedSize = 0
-        foreach ($file in $FilesToDelete) {
+        $stubbedCount = 0
+        $savedSize = 0
+        foreach ($file in $ActiveFiles) {
             try {
                 $size = $file.Length
-                Remove-Item $file.FullName -Force -ErrorAction Stop
-                Write-Host "Deleted: $($file.Name)" -ForegroundColor DarkGray
-                $deletedCount++
-                $deletedSize += $size
+                
+                # STUBBING LOGIC: Create a new empty file, overwriting the old one
+                New-Item -Path $file.FullName -ItemType File -Force | Out-Null
+                
+                Write-Host "Stubbed: $($file.Name)" -ForegroundColor DarkGray
+                $stubbedCount++
+                $savedSize += $size
             }
             catch {
-                Write-Host "Error deleting $($file.Name): $_" -ForegroundColor Red
+                Write-Host "Error stubbing $($file.Name): $_" -ForegroundColor Red
             }
         }
-        $finalSavedGB = [math]::Round($deletedSize / 1GB, 2)
-        Write-Host "`nSuccess! Cleaned $deletedCount files." -ForegroundColor Green
+        $finalSavedGB = [math]::Round($savedSize / 1GB, 2)
+        Write-Host "`nSuccess! Optimized $stubbedCount files." -ForegroundColor Green
         if ($finalSavedGB -gt 0) { Write-Host "You saved $finalSavedGB GB." -ForegroundColor Green }
     } else {
         Write-Host "Operation cancelled." -ForegroundColor Yellow
@@ -228,7 +238,7 @@ do {
     }
 
     if ($choice -ne 'Q' -and $choice -ne 'q' -and $desc -ne "") {
-        Process-Deletion -FilesToDelete $selection -Description $desc
+        Process-Stubbing -FilesToStub $selection -Description $desc
     } elseif ($choice -ne 'Q' -and $choice -ne 'q') {
         Write-Host "Invalid selection." -ForegroundColor Red
         Start-Sleep -Milliseconds 500
