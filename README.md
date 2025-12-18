@@ -1,88 +1,46 @@
-
 # GenshinSlimmer
 
-GenshinSlimmer is a small PowerShell utility that helps reclaim disk space by safely removing pre-rendered cutscene videos from completed regions in Genshin Impact.
+GenshinSlimmer is a small PowerShell utility that helps reclaim disk space by safely replacing pre-rendered cutscene videos, unused audio cache, and duplicate gendered assets with empty "stubs" in Genshin Impact.
 
 This repository contains a single script which:
-- finds the game's video folders automatically after you point it to the main installation directory,
+- finds the game's asset folders automatically (including new `Persistent` data locations),
 - calculates how much space will be freed,
-- shows a preview of files that would be removed,
-- and requires explicit confirmation before deleting anything.
+- shows a preview of files that would be optimized,
+- and requires explicit confirmation before modifying anything.
 
-Version
-- Current script version: v3
+### Version
+- **Current script version: v6**
 
-What's new in v3
-- Optional Milliastra Wonderland audio cleanup: You can now choose to scan for and remove Milliastra Wonderland audio files (these are separate audio assets used by the Milliastra content). This is opt-in and appears as a separate choice in the interactive menu and as a dedicated CLI flag.
-- Traveler-specific video removal: If you only use one Traveler (Aether — male, or Lumine — female), v3 lets you optionally remove pre-rendered videos for the Traveler you don't use. This helps reclaim space from redundant Traveler-specific cutscenes while leaving the videos for the Traveler you play.
-- Existing safety guarantees remain: full preview, dry-run support, and confirmation are still the default behavior.
+### What's new in v6
+- **Stubbing instead of Deleting:** The tool now replaces large video files with empty (0KB) files rather than deleting them. This ensures the game passes basic file existence checks without re-downloading the assets, while still saving you the disk space.
+- **Smart Path Saving:** You only need to paste your game path once. The script now creates a `path.ini` file to remember your installation location for future runs.
+- **Dual Folder Scanning:** Now supports the modern Genshin file structure by scanning both the `StreamingAssets` and `Persistent` folders to find all video assets.
+- **Read-Only Fix:** Automatically handles files marked as "Read-Only" to prevent "Access Denied" errors during optimization.
 
-Features
-- Universal path finder: The script locates the cutscene/video folders when given the "Genshin Impact game" folder.
-- Space calculator: Reports the total space that will be reclaimed (MB / GB) before any deletion.
-- Selective deletion: Pick one region to clean or remove old videos from all supported regions — now includes Milliastra audio and Traveler-specific videos as optional targets.
-- Safety-first workflow: Preview files, confirm selection, and then perform deletion.
-- Dry-run friendly: You can preview without deleting to be 100% sure.
+### Features
+- **Universal path finder:** The script locates the cutscene/video folders automatically when given the "Genshin Impact game" folder.
+- **Config Persistence:** Saves your game path to `path.ini` so you don't have to copy-paste it every time.
+- **Space calculator:** Reports the total space that will be reclaimed (MB / GB) before any action.
+- **Selective optimization:** Pick specific regions to clean, clear UGC cache, stub unused MC gender videos, or do everything at once.
+- **Safety-first workflow:** Preview files, confirm selection, and then perform the stubbing operation.
 
-Supported regions
-- Mondstadt
-- Liyue
-- Sumeru
-- Fontaine
-- Natlan
+### Supported Optimization Options
+- **Regions:** Mondstadt, Liyue, Sumeru, Fontaine, Natlan
+- **UGC Cache:** Miliastra Wonderland (BeyondUGC folder)
+- **Global:** Unused Gender Videos (Aether/Lumine variants)
 
-Note on Milliastra and Traveler options
-- Milliastra Wonderland audio files: These are optional audio assets; deleting them may remove voice/music cues tied to the Milliastra content. The script will clearly label these files in the preview so you can confirm before any action.
-- Traveler videos: Traveler-specific videos are separate pre-rendered cutscenes for Aether or Lumine. If you choose to remove one Traveler's videos, the other Traveler's videos will be preserved. The script will list all files that would be removed so you can verify the selection.
+*(Note: support is based on the folder structure used by the game. If a region isn't present the script will skip it.)*
 
-Requirements
+### Requirements
 - Windows 10+ with PowerShell (built-in).
 - ExecutionPolicy that allows running scripts, or run PowerShell as administrator and set an appropriate policy for the session:
-  - Example (temporary, session-only): In an elevated PowerShell: Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+  - *Example (temporary, session-only):* In an elevated PowerShell: `Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process`
 
-Usage
-1. Download GenshinSlimmer.ps1 from this repository.
-2. Right-click the file and choose "Run with PowerShell" — or open PowerShell, navigate to the file location and run:
+### Usage
+1. Download `GenshinSlimmer.ps1` from this repository.
+2. Right-click the file and choose **"Run with PowerShell"** — or open PowerShell, navigate to the file location and run:
+   ```powershell
    .\GenshinSlimmer.ps1
-3. When prompted, paste the path to your "Genshin Impact game" folder. Example:
-   C:\Program Files\Genshin Impact\Genshin Impact game
-4. Choose the region(s) you want to analyze or delete from the interactive menu. In v3 you will also see optional choices for:
-   - Milliastra Wonderland audio files
-   - Traveler video cleanup (Aether or Lumine)
-5. Review the preview list and the space savings reported.
-6. Confirm to delete, or cancel to exit without changes.
+<img width="1087" height="695" alt="image" src="https://github.com/user-attachments/assets/3bd9a096-7fbb-4883-a5e4-bfdcff79c66a" />
 
-
-Behavior and safety notes
-- The script targets pre-rendered cutscene / video and named audio assets. In general, the game will skip missing videos and fall back to in-engine sequences. However, deleting files is irreversible without a backup.
-- The script always shows a full preview when run interactively and requires manual confirmation before performing deletions (unless -AutoConfirm is used).
-- Deleting Milliastra audio or a Traveler's videos is optional and clearly labeled in the preview. Use -DryRun to confirm exactly which files will be affected.
-- Backup mode is recommended for first runs: the script can create a .zip of selected files or attempt to move them to the Recycle Bin if the required modules/permissions are available.
-
-How it works (brief)
-- The script finds common video and named audio asset paths relative to the installation folder you provide.
-- It enumerates files in known directories (regions, traveler folders, Milliastra audio directories), sums file sizes, and displays the list and total space releasable.
-- After your confirmation it removes the selected files or archives them when backup is enabled.
-
-Troubleshooting
-- If the script can't find your game folder, double-check you provided the path to "Genshin Impact game" (not just the launcher).
-- If a region or optional item (Milliastra audio, Traveler videos) doesn't appear, the game may not have downloaded those assets yet or uses a different folder layout for your installation. Inspect the game's installation directory to locate the video's or audio's subfolders.
-- If PowerShell refuses to run the script, verify your ExecutionPolicy or run PowerShell as administrator and use the session bypass shown above.
-- If backup to Recycle Bin fails, ensure you have the required module or use the .zip backup option instead.
-- Review the log file (if specified) for details on which files were scanned and any errors encountered.
-
-Contributing
-- Found a bug or want a feature? Open an issue or submit a PR. Small improvements like better detection of custom install locations, additional safety checks, or updated region mappings are welcome.
-
-Changelog (v3)
-- Added opt-in Milliastra Wonderland audio deletion.
-- Added Traveler-specific video removal for unused Traveler (Aether/Lumine).
-- Non-interactive automation flags (-AutoConfirm, -DryRun, -LogFile).
-- Backup option (zip or Recycle Bin).
-- Additional safety checks and exclude patterns.
-- Performance improvements and progress feedback.
-
-Disclaimer
-This script deletes game files. While it is intended to be safe for video and named audio assets (the game typically skips missing cutscene files), always confirm the preview and consider backing up files before deletion. Use at your own risk.
-
-<img width="1243" height="1080" alt="image" src="https://github.com/user-attachments/assets/9e994981-e8d3-4502-86be-6256a5cc7d2b" />
+   
