@@ -1,45 +1,92 @@
 <#
 .SYNOPSIS
-    GenshinSlimmer v4
-    Replaces large video files with empty "stubs" (0KB files) to save space 
-    without triggering missing file errors.
+    GenshinSlimmer v6
+    Replaces large video files with empty "stubs" (0KB files) to save space.
+    
+    Updates:
+    - Added support for "Persistent" asset folder (New Genshin file structure)
+    - Scans both StreamingAssets and Persistent folders
     
     Author: dnullptr
 #>
 
 # --- CONFIGURATION ---
-$SubPath_Streaming = "GenshinImpact_Data\StreamingAssets"
-$RelPath_Videos    = "VideoAssets\StandaloneWindows64"
-$RelPath_UGC       = "AudioAssets\BeyondUGC"
+# Paths relative to the "Genshin Impact game" root folder
+$VideoSearchPaths = @(
+    "GenshinImpact_Data\StreamingAssets\VideoAssets\StandaloneWindows64",
+    "GenshinImpact_Data\Persistent\VideoAssets\StandaloneWindows64"
+)
+$UGCSearchPaths = @(
+    "GenshinImpact_Data\StreamingAssets\AudioAssets\BeyondUGC",
+    "GenshinImpact_Data\Persistent\AudioAssets\BeyondUGC"
+)
 
 function Get-GamePath {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v4 Setup" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v6" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Please paste the path to your 'Genshin Impact game' folder." -ForegroundColor White
-    Write-Host "Example: D:\Games\Genshin Impact\Genshin Impact game" -ForegroundColor Gray
-    Write-Host ""
-    
+
+    $ConfigPath = Join-Path $PSScriptRoot "path.ini"
     $validPathFound = $false
+
+    # 1. Try to load from path.ini
+    if (Test-Path $ConfigPath) {
+        $SavedPath = Get-Content -Path $ConfigPath -Raw -ErrorAction SilentlyContinue
+        if ($SavedPath) {
+            $SavedPath = $SavedPath.Trim().Replace('"', '')
+            $CheckPath = Join-Path -Path $SavedPath -ChildPath "GenshinImpact_Data"
+            
+            if (Test-Path $CheckPath) {
+                Write-Host "Found saved path in path.ini:" -ForegroundColor White
+                Write-Host "$SavedPath" -ForegroundColor DarkGray
+                Write-Host "Verifying... " -NoNewline
+                Write-Host "OK!" -ForegroundColor Green
+                
+                Set-Location $SavedPath
+                $validPathFound = $true
+                Start-Sleep -Seconds 1
+                return 
+            } else {
+                Write-Host "Saved path in path.ini is invalid." -ForegroundColor Yellow
+            }
+        }
+    }
+
+    if (-not $validPathFound) {
+        Write-Host "Please paste the path to your 'Genshin Impact game' folder." -ForegroundColor White
+        Write-Host "Example: D:\Games\Genshin Impact\Genshin Impact game" -ForegroundColor Gray
+        Write-Host "(This will be saved to path.ini for next time)" -ForegroundColor DarkGray
+        Write-Host ""
+    }
 
     while (-not $validPathFound) {
         $userInput = Read-Host "Paste Path Here"
         $userInput = $userInput -replace '"', '' # Remove quotes
         
-        # 1. Check for StreamingAssets
-        $fullStreamingPath = Join-Path -Path $userInput -ChildPath $SubPath_Streaming
+        # 2. Check for GenshinImpact_Data
+        $CheckPath = Join-Path -Path $userInput -ChildPath "GenshinImpact_Data"
 
-        if (Test-Path $fullStreamingPath) {
-            Write-Host "`nFolder found! Switching directory..." -ForegroundColor Green
-            Set-Location $fullStreamingPath
+        if (Test-Path $CheckPath) {
+            Write-Host "`nFolder found! Saving config..." -ForegroundColor Green
+            
+            # Save to path.ini
+            try {
+                $userInput | Out-File -FilePath $ConfigPath -Encoding utf8 -Force
+                Write-Host "Path saved to path.ini" -ForegroundColor Cyan
+            } catch {
+                Write-Host "Warning: Could not write path.ini" -ForegroundColor Red
+            }
+
+            Write-Host "Switching directory..." -ForegroundColor Green
+            Set-Location $userInput
             $validPathFound = $true
             Start-Sleep -Seconds 1
         } else {
-            Write-Host "`nCould not find the StreamingAssets folder at:" -ForegroundColor Red
-            Write-Host "$fullStreamingPath" -ForegroundColor DarkGray
+            Write-Host "`nCould not find 'GenshinImpact_Data' at:" -ForegroundColor Red
+            Write-Host "$CheckPath" -ForegroundColor DarkGray
             Write-Host "Please make sure you selected the folder named 'Genshin Impact game'." -ForegroundColor Yellow
             Write-Host "Try again.`n"
         }
@@ -60,10 +107,10 @@ $PatternsGirl      = @("*Girl.usm")
 function Show-Menu {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v4" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v6" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "Target Base: ...\GenshinImpact_Data\StreamingAssets" -ForegroundColor DarkGray
+    Write-Host "Target Base: ...\Genshin Impact game (Scans StreamingAssets & Persistent)" -ForegroundColor DarkGray
     Write-Host "Mode: STUBBING (Files are emptied, not deleted)" -ForegroundColor Magenta
     Write-Host ""
     Write-Host "Select content to stub (empty):"
@@ -86,26 +133,30 @@ function Show-Menu {
 
 function Get-MatchingFiles {
     param (
-        [string]$RelativePath,
+        [array]$RelativePaths,
         [array]$Patterns
     )
     
-    $fullPath = Join-Path (Get-Location) $RelativePath
-    
-    # If folder doesn't exist (e.g. user never played UGC), return empty list
-    if (-not (Test-Path $fullPath)) {
-        return @()
-    }
+    $AllFiles = @()
+    $CurrentLocation = Get-Location
 
-    # Find files matching patterns
-    return Get-ChildItem -Path $fullPath -File | Where-Object { 
-        $name = $_.Name
-        $matched = $false
-        foreach ($pattern in $Patterns) {
-            if ($name -like $pattern) { $matched = $true; break }
+    foreach ($path in $RelativePaths) {
+        $fullPath = Join-Path $CurrentLocation $path
+        
+        if (Test-Path $fullPath) {
+            $files = Get-ChildItem -Path $fullPath -File | Where-Object { 
+                $name = $_.Name
+                $matched = $false
+                foreach ($pattern in $Patterns) {
+                    if ($name -like $pattern) { $matched = $true; break }
+                }
+                $matched
+            }
+            $AllFiles += $files
         }
-        $matched
     }
+    
+    return $AllFiles
 }
 
 function Process-Stubbing {
@@ -114,25 +165,41 @@ function Process-Stubbing {
         [string]$Description
     )
 
-    # Filter out files that are already 0 bytes to avoid inflating stats
-    $ActiveFiles = $FilesToStub | Where-Object { $_.Length -gt 0 }
-
-    if ($ActiveFiles.Count -eq 0) {
-        Write-Host "`nNo stubbable files found for: $Description" -ForegroundColor Yellow
-        Write-Host "(Files are either missing or already optimized/empty)" -ForegroundColor DarkGray
+    # 1. Check if ANY files match the name pattern (regardless of size)
+    if ($FilesToStub.Count -eq 0) {
+        Write-Host "`nNo matching files found for: $Description" -ForegroundColor Yellow
+        Write-Host "(Folder might be empty or region not installed)" -ForegroundColor DarkGray
         Read-Host "Press Enter to continue..."
         return
     }
 
-    # --- CALCULATE SIZE ---
-    $totalBytes = ($ActiveFiles | Measure-Object -Property Length -Sum).Sum
-    $totalMB = [math]::Round($totalBytes / 1MB, 2)
-    $totalGB = [math]::Round($totalBytes / 1GB, 2)
-
-    # --- REPORT ---
+    # 2. Calculate TOTAL SIZE of all matching files
+    $stats = $FilesToStub | Measure-Object -Property Length -Sum
+    $totalBytesFound = $stats.Sum
+    
+    # --- REPORT HEADER ---
     Write-Host "`n-----------------------------------------" -ForegroundColor DarkGray
     Write-Host "Selection:         $Description"
-    Write-Host "Files Found:       " -NoNewline
+    Write-Host "Files Match:       " -NoNewline
+    Write-Host "$($FilesToStub.Count)" -ForegroundColor White
+
+    # 3. Check if ALREADY STUBBED (Total Size == 0)
+    if ($totalBytesFound -eq 0) {
+        Write-Host "Status:            " -NoNewline
+        Write-Host "ALREADY STUBBED (0 GB)" -ForegroundColor Green
+        Write-Host "-----------------------------------------" -ForegroundColor DarkGray
+        Write-Host "These files are already optimized (empty)." -ForegroundColor Yellow
+        Read-Host "Press Enter to continue..."
+        return
+    }
+
+    # 4. If not stubbed, calculate savings
+    $ActiveFiles = $FilesToStub | Where-Object { $_.Length -gt 0 }
+    
+    $totalMB = [math]::Round($totalBytesFound / 1MB, 2)
+    $totalGB = [math]::Round($totalBytesFound / 1GB, 2)
+
+    Write-Host "Stubbable Files:   " -NoNewline
     Write-Host "$($ActiveFiles.Count)" -ForegroundColor Yellow
     Write-Host "Potential Savings: " -NoNewline
     if ($totalGB -gt 1) {
@@ -142,12 +209,13 @@ function Process-Stubbing {
     }
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     
-    Write-Host "Preview:" -ForegroundColor Gray
+    # Preview
+    Write-Host "Preview (Active files):" -ForegroundColor Gray
     $ActiveFiles.Name | Select-Object -First 5 | ForEach-Object { Write-Host " - $_" -ForegroundColor DarkGray }
     if ($ActiveFiles.Count -gt 5) { Write-Host " ... and $($ActiveFiles.Count - 5) others." -ForegroundColor DarkGray }
 
     Write-Host ""
-    Write-Host "This will replace the files with empty (0KB) stubs." -ForegroundColor Cyan
+    Write-Host "This will replace the active files with empty (0KB) stubs." -ForegroundColor Cyan
     $confirmation = Read-Host "Are you sure? (Y/N)"
     
     if ($confirmation -eq 'Y' -or $confirmation -eq 'y') {
@@ -157,6 +225,11 @@ function Process-Stubbing {
             try {
                 $size = $file.Length
                 
+                # Fix for Access Denied: Remove Read-Only attribute if present
+                if ($file.IsReadOnly) {
+                    $file.IsReadOnly = $false
+                }
+
                 # STUBBING LOGIC: Create a new empty file, overwriting the old one
                 New-Item -Path $file.FullName -ItemType File -Force | Out-Null
                 
@@ -194,43 +267,43 @@ do {
 
     switch ($choice) {
         '1' { 
-            $selection = Get-MatchingFiles $RelPath_Videos $PatternsMondstadt 
+            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsMondstadt 
             $desc = "Mondstadt Videos"
         }
         '2' { 
-            $selection = Get-MatchingFiles $RelPath_Videos $PatternsLiyue 
+            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsLiyue 
             $desc = "Liyue Videos"
         }
         '3' { 
-            $selection = Get-MatchingFiles $RelPath_Videos $PatternsSumeru 
+            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSumeru 
             $desc = "Sumeru Videos"
         }
         '4' { 
-            $selection = Get-MatchingFiles $RelPath_Videos $PatternsFontaine 
+            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsFontaine 
             $desc = "Fontaine Videos"
         }
         '5' { 
-            $selection = Get-MatchingFiles $RelPath_Videos $PatternsNatlan 
+            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsNatlan 
             $desc = "Natlan Videos"
         }
         '6' {
             # Select ALL files in the UGC folder
-            $selection = Get-MatchingFiles $RelPath_UGC @("*")
+            $selection = Get-MatchingFiles $UGCSearchPaths @("*")
             $desc = "UGC Cache (BeyondUGC)"
         }
         '7' {
-            $selection = Get-MatchingFiles $RelPath_Videos $PatternsBoy
+            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsBoy
             $desc = "Boy/Aether Videos (Global)"
         }
         '8' {
-            $selection = Get-MatchingFiles $RelPath_Videos $PatternsGirl
+            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsGirl
             $desc = "Girl/Lumine Videos (Global)"
         }
         '9' { 
             # Combine ALL videos + ALL UGC
             $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan
-            $selection += Get-MatchingFiles $RelPath_Videos $AllVideoPatterns
-            $selection += Get-MatchingFiles $RelPath_UGC @("*")
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
+            $selection += Get-MatchingFiles $UGCSearchPaths @("*")
             $desc = "ALL REGIONS + UGC"
         }
         'Q' { Write-Host "Exiting..."; break }
