@@ -1,6 +1,9 @@
-# GenshinSlimmer
 
+##                                                                GenshinSlimmer
+<p align="center"><img width="256" height="512" alt="fin" src="https://github.com/user-attachments/assets/9813ea66-741a-4f85-ad19-5c33f72a46ff" /></p>
 GenshinSlimmer is a small PowerShell utility that helps reclaim disk space by safely replacing pre-rendered cutscene videos, unused audio cache, and duplicate gendered assets with empty "stubs" in Genshin Impact.
+
+
 
 This repository contains a single script which:
 - finds the game's asset folders automatically (including new `Persistent` data locations),
@@ -9,7 +12,16 @@ This repository contains a single script which:
 - and requires explicit confirmation before modifying anything.
 
 ### Version
-- **Current script version: v6**
+
+
+- **Current script version: v7**
+
+### What's new in v7 (2026 Jan 26)
+- **Aggressive Locking (ACL):** To prevent the game's launcher from automatically re-downloading the deleted files, this version applies strict Windows Access Control permissions ("Deny Write") to the stubbed files. This "locks" the 0KB stubs so the game cannot overwrite them.
+- 
+- **Unlock & Restore:** A new menu option allows you to verify, unlock, and delete the locked stubs. This is essential for letting the game "repair" itself before a major version update.
+-**Persistent Folder Support:** Safely handles the Persistent folder (where newer game assets live) by using the locking mechanism to bypass integrity checks.
+-**Read-Only Fixes:** Improved handling of file attributes to prevent permission errors during the stubbing process.
 
 ### What's new in v6
 - **Stubbing instead of Deleting:** The tool now replaces large video files with empty (0KB) files rather than deleting them. This ensures the game passes basic file existence checks without re-downloading the assets, while still saving you the disk space.
@@ -41,6 +53,7 @@ This repository contains a single script which:
 2. Right-click the file and choose **"Run with PowerShell"** — or open PowerShell, navigate to the file location and run:
    ```powershell
    .\GenshinSlimmer.ps1
+### Screenshot of a run example from v6 
 <img width="1087" height="695" alt="image" src="https://github.com/user-attachments/assets/3bd9a096-7fbb-4883-a5e4-bfdcff79c66a" />
 
    
