@@ -1,17 +1,18 @@
 <#
 .SYNOPSIS
-    GenshinSlimmer v6
-    Replaces large video files with empty "stubs" (0KB files) to save space.
+    GenshinSlimmer v7 (Fixed)
+    - Stubs files to 0KB to save space.
+    - Applies "Aggressive Lock" (ACL Permissions) to prevent the game from 
+      redownloading the stubbed files during its verification check.
     
-    Updates:
-    - Added support for "Persistent" asset folder (New Genshin file structure)
-    - Scans both StreamingAssets and Persistent folders
+    Findings:
+    - The game verifies files in 'Persistent' on startup (DownloadError.log).
+    - Locking the file permissions stops the redownload.
     
     Author: dnullptr
 #>
 
 # --- CONFIGURATION ---
-# Paths relative to the "Genshin Impact game" root folder
 $VideoSearchPaths = @(
     "GenshinImpact_Data\StreamingAssets\VideoAssets\StandaloneWindows64",
     "GenshinImpact_Data\Persistent\VideoAssets\StandaloneWindows64"
@@ -24,7 +25,7 @@ $UGCSearchPaths = @(
 function Get-GamePath {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v6" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v7 (Fixed)" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host ""
@@ -32,7 +33,6 @@ function Get-GamePath {
     $ConfigPath = Join-Path $PSScriptRoot "path.ini"
     $validPathFound = $false
 
-    # 1. Try to load from path.ini
     if (Test-Path $ConfigPath) {
         $SavedPath = Get-Content -Path $ConfigPath -Raw -ErrorAction SilentlyContinue
         if ($SavedPath) {
@@ -42,54 +42,66 @@ function Get-GamePath {
             if (Test-Path $CheckPath) {
                 Write-Host "Found saved path in path.ini:" -ForegroundColor White
                 Write-Host "$SavedPath" -ForegroundColor DarkGray
-                Write-Host "Verifying... " -NoNewline
-                Write-Host "OK!" -ForegroundColor Green
-                
                 Set-Location $SavedPath
                 $validPathFound = $true
                 Start-Sleep -Seconds 1
                 return 
-            } else {
-                Write-Host "Saved path in path.ini is invalid." -ForegroundColor Yellow
             }
         }
     }
 
     if (-not $validPathFound) {
         Write-Host "Please paste the path to your 'Genshin Impact game' folder." -ForegroundColor White
-        Write-Host "Example: D:\Games\Genshin Impact\Genshin Impact game" -ForegroundColor Gray
-        Write-Host "(This will be saved to path.ini for next time)" -ForegroundColor DarkGray
+        Write-Host "Example: C:\Program Files\HoYoPlay\games\Genshin Impact game" -ForegroundColor Gray
         Write-Host ""
     }
 
     while (-not $validPathFound) {
         $userInput = Read-Host "Paste Path Here"
-        $userInput = $userInput -replace '"', '' # Remove quotes
-        
-        # 2. Check for GenshinImpact_Data
+        $userInput = $userInput -replace '"', ''
         $CheckPath = Join-Path -Path $userInput -ChildPath "GenshinImpact_Data"
 
         if (Test-Path $CheckPath) {
             Write-Host "`nFolder found! Saving config..." -ForegroundColor Green
-            
-            # Save to path.ini
-            try {
-                $userInput | Out-File -FilePath $ConfigPath -Encoding utf8 -Force
-                Write-Host "Path saved to path.ini" -ForegroundColor Cyan
-            } catch {
-                Write-Host "Warning: Could not write path.ini" -ForegroundColor Red
-            }
-
-            Write-Host "Switching directory..." -ForegroundColor Green
+            try { $userInput | Out-File -FilePath $ConfigPath -Encoding utf8 -Force } catch {}
             Set-Location $userInput
             $validPathFound = $true
             Start-Sleep -Seconds 1
         } else {
-            Write-Host "`nCould not find 'GenshinImpact_Data' at:" -ForegroundColor Red
-            Write-Host "$CheckPath" -ForegroundColor DarkGray
-            Write-Host "Please make sure you selected the folder named 'Genshin Impact game'." -ForegroundColor Yellow
-            Write-Host "Try again.`n"
+            Write-Host "`nCould not find 'GenshinImpact_Data'." -ForegroundColor Red
         }
+    }
+}
+
+function Toggle-FileLock {
+    param (
+        [string]$Path,
+        [bool]$Lock
+    )
+    
+    $file = Get-Item $Path
+    $acl = $file.GetAccessControl()
+    
+    # Define a "Deny Write" rule for Everyone
+    $permission = "Everyone"
+    $rights = "Write, Delete" 
+    $type = "Deny"
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($permission, $rights, $type)
+    
+    if ($Lock) {
+        # 1. Set ReadOnly FIRST (Before removing write permissions)
+        if (-not $file.IsReadOnly) { $file.IsReadOnly = $true }
+
+        # 2. Apply Deny Rule
+        $acl.AddAccessRule($rule)
+        $file.SetAccessControl($acl)
+    } else {
+        # 1. Remove Deny Rule FIRST (To regain write permissions)
+        $acl.RemoveAccessRule($rule) | Out-Null
+        $file.SetAccessControl($acl)
+
+        # 2. Remove ReadOnly
+        if ($file.IsReadOnly) { $file.IsReadOnly = $false }
     }
 }
 
@@ -99,222 +111,177 @@ $PatternsLiyue     = @("*LiYue*", "*LYAQ*")
 $PatternsSumeru    = @("*Sumeru*")
 $PatternsFontaine  = @("*Fontaine*")
 $PatternsNatlan    = @("*Natlan*")
-
-# New Gender Patterns
 $PatternsBoy       = @("*Boy.usm")
 $PatternsGirl      = @("*Girl.usm")
 
-function Show-Menu {
-    Clear-Host
-    Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v6" -ForegroundColor Yellow
-    Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
-    Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "Target Base: ...\Genshin Impact game (Scans StreamingAssets & Persistent)" -ForegroundColor DarkGray
-    Write-Host "Mode: STUBBING (Files are emptied, not deleted)" -ForegroundColor Magenta
-    Write-Host ""
-    Write-Host "Select content to stub (empty):"
-    Write-Host "1. Mondstadt Videos (Matches *Mengde*, *MDAQ*, *Venti*)"
-    Write-Host "2. Liyue Videos     (Matches *LiYue*, *LYAQ*)"
-    Write-Host "3. Sumeru Videos    (Matches *Sumeru*)"
-    Write-Host "4. Fontaine Videos  (Matches *Fontaine*)"
-    Write-Host "5. Natlan Videos    (Matches *Natlan*)"
-    Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "6. UGC Cache (Miliastra Wonderland / BeyondUGC)" -ForegroundColor Magenta
-    Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "7. Stub 'Boy' (Aether) Videos (Global)" -ForegroundColor Cyan
-    Write-Host "8. Stub 'Girl' (Lumine) Videos (Global)" -ForegroundColor Cyan
-    Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "9. STUB ALL (Regions 1-5 + UGC)" -ForegroundColor Red
-    Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "Q. Quit"
-    Write-Host "=========================================" -ForegroundColor Cyan
-}
-
 function Get-MatchingFiles {
-    param (
-        [array]$RelativePaths,
-        [array]$Patterns
-    )
-    
+    param ([array]$RelativePaths, [array]$Patterns)
     $AllFiles = @()
     $CurrentLocation = Get-Location
 
     foreach ($path in $RelativePaths) {
         $fullPath = Join-Path $CurrentLocation $path
-        
         if (Test-Path $fullPath) {
             $files = Get-ChildItem -Path $fullPath -File | Where-Object { 
                 $name = $_.Name
                 $matched = $false
-                foreach ($pattern in $Patterns) {
-                    if ($name -like $pattern) { $matched = $true; break }
-                }
+                foreach ($pattern in $Patterns) { if ($name -like $pattern) { $matched = $true; break } }
                 $matched
             }
             $AllFiles += $files
         }
     }
-    
     return $AllFiles
 }
 
 function Process-Stubbing {
-    param (
-        [array]$FilesToStub,
-        [string]$Description
-    )
+    param ([array]$FilesToStub, [string]$Description)
 
-    # 1. Check if ANY files match the name pattern (regardless of size)
     if ($FilesToStub.Count -eq 0) {
         Write-Host "`nNo matching files found for: $Description" -ForegroundColor Yellow
-        Write-Host "(Folder might be empty or region not installed)" -ForegroundColor DarkGray
         Read-Host "Press Enter to continue..."
         return
     }
 
-    # 2. Calculate TOTAL SIZE of all matching files
     $stats = $FilesToStub | Measure-Object -Property Length -Sum
     $totalBytesFound = $stats.Sum
     
-    # --- REPORT HEADER ---
     Write-Host "`n-----------------------------------------" -ForegroundColor DarkGray
     Write-Host "Selection:         $Description"
     Write-Host "Files Match:       " -NoNewline
     Write-Host "$($FilesToStub.Count)" -ForegroundColor White
 
-    # 3. Check if ALREADY STUBBED (Total Size == 0)
-    if ($totalBytesFound -eq 0) {
+    # Check for already stubbed (Total bytes = 0 or close to 0)
+    if ($totalBytesFound -lt ($FilesToStub.Count * 1024)) { 
         Write-Host "Status:            " -NoNewline
-        Write-Host "ALREADY STUBBED (0 GB)" -ForegroundColor Green
+        Write-Host "ALREADY STUBBED" -ForegroundColor Green
         Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-        Write-Host "These files are already optimized (empty)." -ForegroundColor Yellow
+        Write-Host "Files appear to be stubbed (0KB)." -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "Select action:"
+        Write-Host " [1] Re-Apply Lock (Fix permissions if previous run errored)"
+        Write-Host " [2] Unlock & Delete (Force game to redownload)"
+        Write-Host " [3] Cancel"
+        
+        $action = Read-Host "Choice"
+        
+        if ($action -eq '1') {
+             foreach ($file in $FilesToStub) {
+                try {
+                    # Unlock first to clear weird states
+                    Toggle-FileLock -Path $file.FullName -Lock $false
+                    # Lock correctly
+                    Toggle-FileLock -Path $file.FullName -Lock $true
+                    Write-Host "Relocked: $($file.Name)" -ForegroundColor DarkGray
+                } catch { Write-Host "Error: $($file.Name)" -ForegroundColor Red }
+             }
+             Write-Host "`nLocks updated. Game should not redownload files now." -ForegroundColor Green
+        }
+        elseif ($action -eq '2') {
+            foreach ($file in $FilesToStub) {
+                try {
+                    Toggle-FileLock -Path $file.FullName -Lock $false
+                    Remove-Item $file.FullName -Force
+                    Write-Host "Unlocked & Deleted: $($file.Name)" -ForegroundColor DarkGray
+                } catch { Write-Host "Error unlocking: $($file.Name)" -ForegroundColor Red }
+            }
+            Write-Host "`nDone. The game will redownload these files on next launch." -ForegroundColor Yellow
+        }
         Read-Host "Press Enter to continue..."
         return
     }
 
-    # 4. If not stubbed, calculate savings
     $ActiveFiles = $FilesToStub | Where-Object { $_.Length -gt 0 }
-    
-    $totalMB = [math]::Round($totalBytesFound / 1MB, 2)
     $totalGB = [math]::Round($totalBytesFound / 1GB, 2)
 
     Write-Host "Stubbable Files:   " -NoNewline
     Write-Host "$($ActiveFiles.Count)" -ForegroundColor Yellow
     Write-Host "Potential Savings: " -NoNewline
-    if ($totalGB -gt 1) {
-        Write-Host "$totalGB GB" -ForegroundColor Green
-    } else {
-        Write-Host "$totalMB MB" -ForegroundColor Green
-    }
+    Write-Host "$totalGB GB" -ForegroundColor Green
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     
-    # Preview
-    Write-Host "Preview (Active files):" -ForegroundColor Gray
-    $ActiveFiles.Name | Select-Object -First 5 | ForEach-Object { Write-Host " - $_" -ForegroundColor DarkGray }
-    if ($ActiveFiles.Count -gt 5) { Write-Host " ... and $($ActiveFiles.Count - 5) others." -ForegroundColor DarkGray }
-
+    $ActiveFiles.Name | Select-Object -First 3 | ForEach-Object { Write-Host " - $_" -ForegroundColor DarkGray }
+    if ($ActiveFiles.Count -gt 3) { Write-Host " ... and others." -ForegroundColor DarkGray }
+    
     Write-Host ""
-    Write-Host "This will replace the active files with empty (0KB) stubs." -ForegroundColor Cyan
-    $confirmation = Read-Host "Are you sure? (Y/N)"
+    Write-Host "This will STUB (0KB) and LOCK files to prevent the game from fixing them." -ForegroundColor Cyan
+    $confirmation = Read-Host "Proceed? (Y/N)"
     
     if ($confirmation -eq 'Y' -or $confirmation -eq 'y') {
         $stubbedCount = 0
-        $savedSize = 0
         foreach ($file in $ActiveFiles) {
             try {
-                $size = $file.Length
+                # 1. Unlock first (clean slate - in case partially locked from failed run)
+                try { Toggle-FileLock -Path $file.FullName -Lock $false } catch {}
                 
-                # Fix for Access Denied: Remove Read-Only attribute if present
-                if ($file.IsReadOnly) {
-                    $file.IsReadOnly = $false
-                }
-
-                # STUBBING LOGIC: Create a new empty file, overwriting the old one
+                # 2. Stub
                 New-Item -Path $file.FullName -ItemType File -Force | Out-Null
                 
-                Write-Host "Stubbed: $($file.Name)" -ForegroundColor DarkGray
+                # 3. Lock
+                Toggle-FileLock -Path $file.FullName -Lock $true
+                
+                Write-Host "Stubbed & Locked: $($file.Name)" -ForegroundColor DarkGray
                 $stubbedCount++
-                $savedSize += $size
             }
-            catch {
-                Write-Host "Error stubbing $($file.Name): $_" -ForegroundColor Red
-            }
+            catch { Write-Host "Error: $($file.Name) - $_" -ForegroundColor Red }
         }
-        $finalSavedGB = [math]::Round($savedSize / 1GB, 2)
         Write-Host "`nSuccess! Optimized $stubbedCount files." -ForegroundColor Green
-        if ($finalSavedGB -gt 0) { Write-Host "You saved $finalSavedGB GB." -ForegroundColor Green }
     } else {
         Write-Host "Operation cancelled." -ForegroundColor Yellow
     }
-    
     Read-Host "Press Enter to return to menu..."
 }
 
-# --- EXECUTION START ---
-
-# 1. Ask user for path and set location
+# --- MAIN EXECUTION ---
 Get-GamePath
 
-# 2. Loop Menu
 do {
-    Show-Menu
+    Clear-Host
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host "   GenshinSlimmer v7 (Fixed)" -ForegroundColor Yellow
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host "Mode: Persistent + StreamingAssets (Aggressive Lock)" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "Select content to stub & lock:"
+    Write-Host "1. Mondstadt"
+    Write-Host "2. Liyue"
+    Write-Host "3. Sumeru"
+    Write-Host "4. Fontaine"
+    Write-Host "5. Natlan"
+    Write-Host "-----------------------------------------" -ForegroundColor DarkGray
+    Write-Host "6. UGC Cache"
+    Write-Host "7. Stub 'Boy' Videos"
+    Write-Host "8. Stub 'Girl' Videos"
+    Write-Host "-----------------------------------------" -ForegroundColor DarkGray
+    Write-Host "0. STUB ALL (Regions + UGC)" -ForegroundColor Red
+    Write-Host "Q. Quit"
+    Write-Host "=========================================" -ForegroundColor Cyan
+
     $choice = Read-Host "Enter your choice"
     
-    # Reset file list
     $selection = @()
     $desc = ""
 
     switch ($choice) {
-        '1' { 
-            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsMondstadt 
-            $desc = "Mondstadt Videos"
-        }
-        '2' { 
-            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsLiyue 
-            $desc = "Liyue Videos"
-        }
-        '3' { 
-            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSumeru 
-            $desc = "Sumeru Videos"
-        }
-        '4' { 
-            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsFontaine 
-            $desc = "Fontaine Videos"
-        }
-        '5' { 
-            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsNatlan 
-            $desc = "Natlan Videos"
-        }
-        '6' {
-            # Select ALL files in the UGC folder
-            $selection = Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "UGC Cache (BeyondUGC)"
-        }
-        '7' {
-            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsBoy
-            $desc = "Boy/Aether Videos (Global)"
-        }
-        '8' {
-            $selection = Get-MatchingFiles $VideoSearchPaths $PatternsGirl
-            $desc = "Girl/Lumine Videos (Global)"
-        }
-        '9' { 
-            # Combine ALL videos + ALL UGC
+        '1' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsMondstadt; $desc = "Mondstadt" }
+        '2' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsLiyue; $desc = "Liyue" }
+        '3' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSumeru; $desc = "Sumeru" }
+        '4' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsFontaine; $desc = "Fontaine" }
+        '5' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsNatlan; $desc = "Natlan" }
+        '6' { $selection = Get-MatchingFiles $UGCSearchPaths @("*"); $desc = "UGC Cache" }
+        '7' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsBoy; $desc = "Boy Videos" }
+        '8' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsGirl; $desc = "Girl Videos" }
+        '0' { 
             $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan
             $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
             $desc = "ALL REGIONS + UGC"
         }
-        'Q' { Write-Host "Exiting..."; break }
-        'q' { Write-Host "Exiting..."; break }
+        'Q' { break }
+        'q' { break }
     }
 
-    if ($choice -ne 'Q' -and $choice -ne 'q' -and $desc -ne "") {
+    if ($choice -in '1','2','3','4','5','6','7','8','0') {
         Process-Stubbing -FilesToStub $selection -Description $desc
-    } elseif ($choice -ne 'Q' -and $choice -ne 'q') {
-        Write-Host "Invalid selection." -ForegroundColor Red
-        Start-Sleep -Milliseconds 500
     }
-
 } until ($choice -eq 'Q' -or $choice -eq 'q')
