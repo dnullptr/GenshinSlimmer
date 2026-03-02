@@ -14,7 +14,10 @@ This repository contains a single script which:
 ### Version
 
 
-- **Current script version: v7**
+- **Current script version: v8**
+### What's new in v8 (2026 Mar 1)
+- **Fast Re-Unlock:** To help release the lock when you actually have new content to download (in-game) - will trigger re-download but it's once!
+- **Added Gender-specific Stub All:** No more manually choosing traveler videos after 0.STUB ALL. (New options [G]irl/[B]oy, Option 0 still in script.)
 
 ### What's new in v7 (2026 Jan 26)
 - **Aggressive Locking (ACL):** To prevent the game's launcher from automatically re-downloading the deleted files, this version applies strict Windows Access Control permissions ("Deny Write") to the stubbed files. This "locks" the 0KB stubs so the game cannot overwrite them.
