@@ -56,7 +56,8 @@ This repository contains a single script which:
 2. Right-click the file and choose **"Run with PowerShell"** — or open PowerShell, navigate to the file location and run:
    ```powershell
    .\GenshinSlimmer.ps1
-### Screenshot of a run example from v6 
-<img width="1087" height="695" alt="image" src="https://github.com/user-attachments/assets/3bd9a096-7fbb-4883-a5e4-bfdcff79c66a" />
+### Screenshot of a run example from v8 
+<img width="784" height="671" alt="image" src="https://github.com/user-attachments/assets/63014caa-f1b0-4906-bb2c-1b7f8e7a39e6" />
+
 
    
