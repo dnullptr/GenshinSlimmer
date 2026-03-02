@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    GenshinSlimmer v7 (Fixed)
+    GenshinSlimmer v8
     - Stubs files to 0KB to save space.
     - Applies "Aggressive Lock" (ACL Permissions) to prevent the game from 
       redownloading the stubbed files during its verification check.
@@ -25,7 +25,7 @@ $UGCSearchPaths = @(
 function Get-GamePath {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v7 (Fixed)" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v8" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host ""
@@ -232,13 +232,54 @@ function Process-Stubbing {
     Read-Host "Press Enter to return to menu..."
 }
 
+function Process-UnlockOnly {
+    param ([array]$FilesToUnlock, [string]$Description)
+
+    if ($FilesToUnlock.Count -eq 0) {
+        Write-Host "`nNo matching files found for: $Description" -ForegroundColor Yellow
+        Read-Host "Press Enter to continue..."
+        return
+    }
+
+    $stats = $FilesToUnlock | Measure-Object -Property Length -Sum
+    $totalBytesFound = $stats.Sum
+    
+    Write-Host "`n-----------------------------------------" -ForegroundColor DarkGray
+    Write-Host "Selection:         $Description" -ForegroundColor Yellow
+    Write-Host "Files Found:       $($FilesToUnlock.Count)" -ForegroundColor White
+    Write-Host "Current Size:      $([math]::Round($totalBytesFound / 1MB, 2)) MB" -ForegroundColor Cyan
+    Write-Host "-----------------------------------------" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "This will UNLOCK all files WITHOUT deleting them." -ForegroundColor Yellow
+    Write-Host "The game will be able to re-download these files naturally." -ForegroundColor Gray
+    Write-Host "Useful for big patches that require file updates." -ForegroundColor Gray
+    $confirmation = Read-Host "`nProceed? (Y/N)"
+    
+    if ($confirmation -eq 'Y' -or $confirmation -eq 'y') {
+        $unlockedCount = 0
+        foreach ($file in $FilesToUnlock) {
+            try {
+                Toggle-FileLock -Path $file.FullName -Lock $false
+                Write-Host "Unlocked: $($file.Name)" -ForegroundColor Green
+                $unlockedCount++
+            }
+            catch { Write-Host "Error: $($file.Name) - $_" -ForegroundColor Red }
+        }
+        Write-Host "`nSuccess! Unlocked $unlockedCount files." -ForegroundColor Green
+        Write-Host "The game can now re-download these files during patches." -ForegroundColor Cyan
+    } else {
+        Write-Host "Operation cancelled." -ForegroundColor Yellow
+    }
+    Read-Host "Press Enter to return to menu..."
+}
+
 # --- MAIN EXECUTION ---
 Get-GamePath
 
 do {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v7 (Fixed)" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v8" -ForegroundColor Yellow
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host "Mode: Persistent + StreamingAssets (Aggressive Lock)" -ForegroundColor DarkGray
     Write-Host ""
@@ -252,8 +293,11 @@ do {
     Write-Host "6. UGC Cache"
     Write-Host "7. Stub 'Boy' Videos"
     Write-Host "8. Stub 'Girl' Videos"
+    Write-Host "9. UNLOCK ALL (Allow Re-download every major update)" -ForegroundColor Yellow
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "0. STUB ALL (Regions + UGC)" -ForegroundColor Red
+    Write-Host "G. STUB ALL + GIRL (Regions + UGC + Girl)" -ForegroundColor Magenta
+    Write-Host "B. STUB ALL + BOY (Regions + UGC + Boy)" -ForegroundColor Cyan
+    Write-Host "0. STUB ALL (Regions + UGC - Without Boy/Girl)" -ForegroundColor Red
     Write-Host "Q. Quit"
     Write-Host "=========================================" -ForegroundColor Cyan
 
@@ -271,6 +315,38 @@ do {
         '6' { $selection = Get-MatchingFiles $UGCSearchPaths @("*"); $desc = "UGC Cache" }
         '7' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsBoy; $desc = "Boy Videos" }
         '8' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsGirl; $desc = "Girl Videos" }
+        '9' {
+            # Unlock ALL stubbed files without deleting - allows game to re-download
+            Write-Host "`nScanning for stubbed & locked files..." -ForegroundColor Cyan
+            $AllPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsBoy + $PatternsGirl
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllPatterns
+            $selection += Get-MatchingFiles $UGCSearchPaths @("*")
+            $desc = "UNLOCK ALL"
+        }
+        'G' {
+            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsGirl
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
+            $selection += Get-MatchingFiles $UGCSearchPaths @("*")
+            $desc = "ALL REGIONS + UGC + GIRL"
+        }
+        'g' {
+            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsGirl
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
+            $selection += Get-MatchingFiles $UGCSearchPaths @("*")
+            $desc = "ALL REGIONS + UGC + GIRL"
+        }
+        'B' {
+            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsBoy
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
+            $selection += Get-MatchingFiles $UGCSearchPaths @("*")
+            $desc = "ALL REGIONS + UGC + BOY"
+        }
+        'b' {
+            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsBoy
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
+            $selection += Get-MatchingFiles $UGCSearchPaths @("*")
+            $desc = "ALL REGIONS + UGC + BOY"
+        }
         '0' { 
             $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan
             $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
@@ -281,7 +357,12 @@ do {
         'q' { break }
     }
 
-    if ($choice -in '1','2','3','4','5','6','7','8','0') {
-        Process-Stubbing -FilesToStub $selection -Description $desc
+    if ($choice -in '1','2','3','4','5','6','7','8','9','G','g','B','b','0') {
+        if ($choice -eq '9') {
+            # Special handling for Option 9 - Unlock without delete
+            Process-UnlockOnly -FilesToUnlock $selection -Description $desc
+        } else {
+            Process-Stubbing -FilesToStub $selection -Description $desc
+        }
     }
 } until ($choice -eq 'Q' -or $choice -eq 'q')
