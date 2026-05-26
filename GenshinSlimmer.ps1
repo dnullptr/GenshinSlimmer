@@ -1,6 +1,5 @@
 <#
-.SYNOPSIS
-    GenshinSlimmer v8
+    GenshinSlimmer v9
     - Stubs files to 0KB to save space.
     - Applies "Aggressive Lock" (ACL Permissions) to prevent the game from 
       redownloading the stubbed files during its verification check.
@@ -25,7 +24,7 @@ $UGCSearchPaths = @(
 function Get-GamePath {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v8" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v9" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host ""
@@ -113,6 +112,9 @@ $PatternsFontaine  = @("*Fontaine*")
 $PatternsNatlan    = @("*Natlan*")
 $PatternsBoy       = @("*Boy.usm")
 $PatternsGirl      = @("*Girl.usm")
+
+# NodKrai region pattern
+$PatternsNodKrai   = @("*NodKrai*")
 
 function Get-MatchingFiles {
     param ([array]$RelativePaths, [array]$Patterns)
@@ -273,13 +275,88 @@ function Process-UnlockOnly {
     Read-Host "Press Enter to return to menu..."
 }
 
+function Get-CompressedFileSize {
+    param([string]$path)
+    if (-not (Test-Path $path)) { return 0 }
+
+    if (-not [type]::GetType('Win32Compressed')) {
+        $signature = @'
+using System;
+using System.Runtime.InteropServices;
+public static class Win32Compressed {
+    [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+    public static extern uint GetCompressedFileSizeW(string lpFileName, out uint lpFileSizeHigh);
+}
+'@
+        try { Add-Type -TypeDefinition $signature -ErrorAction Stop } catch { }
+    }
+
+    $high = 0
+    try {
+        $low = [Win32Compressed]::GetCompressedFileSizeW($path, [ref]$high)
+    } catch {
+        return 0
+    }
+    if ($low -eq 0xFFFFFFFF) {
+        $err = [System.ComponentModel.Win32Exception]::new([System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
+        throw $err
+    }
+    return (([uint64]$high -shl 32) -bor ([uint64]$low))
+}
+
+function Get-FolderDiskUsage {
+    param([string]$root)
+    $logicalSum = 0
+    $compressedSum = 0
+    $files = Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue
+    foreach ($f in $files) {
+        $logicalSum += $f.Length
+        try { $compressedSum += Get-CompressedFileSize $f.FullName } catch { $compressedSum += $f.Length }
+    }
+    return @{ Logical = $logicalSum; Compressed = $compressedSum }
+}
+
+function Process-Compression {
+    $gameRoot = (Get-Location).ProviderPath
+    Write-Host "`nCalculating current disk usage (this may take a while)..." -ForegroundColor Cyan
+    $before = Get-FolderDiskUsage $gameRoot
+    $beforeGB = [math]::Round($before.Compressed / 1GB, 2)
+    $logicalGB = [math]::Round($before.Logical / 1GB, 2)
+    Write-Host "Before: $beforeGB GB (on-disk) / $logicalGB GB (logical)" -ForegroundColor Cyan
+
+    Write-Host "`nThis will apply NTFS LZX compression recursively to the current game folder." -ForegroundColor Yellow
+    $confirmation = Read-Host "Proceed? (Y/N)"
+    if ($confirmation -notin @('Y','y')) { Write-Host "Compression cancelled." -ForegroundColor Yellow; Read-Host "Press Enter to continue..."; return }
+
+    Write-Host "`nCompressing files under: $gameRoot" -ForegroundColor Cyan
+    try {
+        $argS = '/S:"' + $gameRoot + '"'
+        $args = @('/C', $argS, '/I', '/Q', '/EXE:LZX')
+        $proc = Start-Process -FilePath 'compact.exe' -ArgumentList $args -NoNewWindow -Wait -PassThru
+        if ($proc.ExitCode -ne 0) { Write-Host "`ncompact.exe exited with code $($proc.ExitCode)." -ForegroundColor Red }
+    } catch {
+        Write-Host "`nError running compact.exe: $_" -ForegroundColor Red
+    }
+
+    Write-Host "`nRecalculating disk usage after compression..." -ForegroundColor Cyan
+    $after = Get-FolderDiskUsage $gameRoot
+    $afterGB = [math]::Round($after.Compressed / 1GB, 2)
+    Write-Host "After:  $afterGB GB (on-disk) / $logicalGB GB (logical)" -ForegroundColor Cyan
+
+    $savedBytes = $before.Compressed - $after.Compressed
+    $savedGB = [math]::Round($savedBytes / 1GB, 2)
+    $percent = if ($before.Compressed -gt 0) { [math]::Round(($savedBytes / $before.Compressed) * 100, 2) } else { 0 }
+    Write-Host "`nSaved:  $savedGB GB ($percent% reduction)" -ForegroundColor Green
+    Read-Host "Press Enter to continue..."
+}
+
 # --- MAIN EXECUTION ---
 Get-GamePath
 
 do {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v8" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v9" -ForegroundColor Yellow
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host "Mode: Persistent + StreamingAssets (Aggressive Lock)" -ForegroundColor DarkGray
     Write-Host ""
@@ -289,15 +366,17 @@ do {
     Write-Host "3. Sumeru"
     Write-Host "4. Fontaine"
     Write-Host "5. Natlan"
+    Write-Host "6. Nod-Krai"
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "6. UGC Cache"
-    Write-Host "7. Stub 'Boy' Videos"
-    Write-Host "8. Stub 'Girl' Videos"
-    Write-Host "9. UNLOCK ALL (Allow Re-download every major update)" -ForegroundColor Yellow
+    Write-Host "7. UGC Cache"
+    Write-Host "8. Stub 'Boy' Videos"
+    Write-Host "9. Stub 'Girl' Videos"
+    Write-Host "U. UNLOCK ALL (Allow Re-download every major update)" -ForegroundColor Yellow
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     Write-Host "G. STUB ALL + GIRL (Regions + UGC + Girl)" -ForegroundColor Magenta
     Write-Host "B. STUB ALL + BOY (Regions + UGC + Boy)" -ForegroundColor Cyan
     Write-Host "0. STUB ALL (Regions + UGC - Without Boy/Girl)" -ForegroundColor Red
+    Write-Host "C. Compress Game Files (LZX)" -ForegroundColor Green
     Write-Host "Q. Quit"
     Write-Host "=========================================" -ForegroundColor Cyan
 
@@ -307,48 +386,60 @@ do {
     $desc = ""
 
     switch ($choice) {
+        'C' { Process-Compression; continue }
+        'c' { Process-Compression; continue }
+
         '1' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsMondstadt; $desc = "Mondstadt" }
         '2' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsLiyue; $desc = "Liyue" }
         '3' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSumeru; $desc = "Sumeru" }
         '4' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsFontaine; $desc = "Fontaine" }
         '5' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsNatlan; $desc = "Natlan" }
-        '6' { $selection = Get-MatchingFiles $UGCSearchPaths @("*"); $desc = "UGC Cache" }
-        '7' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsBoy; $desc = "Boy Videos" }
-        '8' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsGirl; $desc = "Girl Videos" }
-        '9' {
-            # Unlock ALL stubbed files without deleting - allows game to re-download
+        '6' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsNodKrai; $desc = "NodKrai" }
+        '7' { $selection = Get-MatchingFiles $UGCSearchPaths @("*"); $desc = "UGC Cache" }
+        '8' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsBoy; $desc = "Boy Videos" }
+        '9' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsGirl; $desc = "Girl Videos" }
+
+        'U' {
             Write-Host "`nScanning for stubbed & locked files..." -ForegroundColor Cyan
-            $AllPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsBoy + $PatternsGirl
+            $AllPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsBoy + $PatternsGirl + $PatternsNodKrai
             $selection += Get-MatchingFiles $VideoSearchPaths $AllPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
             $desc = "UNLOCK ALL"
         }
+        'u' {
+            Write-Host "`nScanning for stubbed & locked files..." -ForegroundColor Cyan
+            $AllPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsBoy + $PatternsGirl + $PatternsNodKrai
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllPatterns
+            $selection += Get-MatchingFiles $UGCSearchPaths @("*")
+            $desc = "UNLOCK ALL"
+        }
+
         'G' {
-            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsGirl
+            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsNodKrai + $PatternsGirl
             $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
             $desc = "ALL REGIONS + UGC + GIRL"
         }
         'g' {
-            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsGirl
+            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsNodKrai + $PatternsGirl
             $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
             $desc = "ALL REGIONS + UGC + GIRL"
         }
         'B' {
-            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsBoy
+            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsNodKrai + $PatternsBoy
             $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
             $desc = "ALL REGIONS + UGC + BOY"
         }
         'b' {
-            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsBoy
+            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsNodKrai + $PatternsBoy
             $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
             $desc = "ALL REGIONS + UGC + BOY"
         }
         '0' { 
-            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan
+            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsNodKrai
             $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
             $desc = "ALL REGIONS + UGC"
@@ -357,9 +448,9 @@ do {
         'q' { break }
     }
 
-    if ($choice -in '1','2','3','4','5','6','7','8','9','G','g','B','b','0') {
-        if ($choice -eq '9') {
-            # Special handling for Option 9 - Unlock without delete
+    if ($choice -in '1','2','3','4','5','6','7','8','9','G','g','B','b','0','U','u') {
+        if ($choice -in 'U','u') {
+            # Special handling for Unlock All (letter U)
             Process-UnlockOnly -FilesToUnlock $selection -Description $desc
         } else {
             Process-Stubbing -FilesToStub $selection -Description $desc
