@@ -13,8 +13,11 @@ This repository contains a single script which:
 
 ### Version
 
+- **Current script version: v9**
+### What's new in v9 (2026 May 26)
+- **Nod-Krai Region:** Added support for the Nod-Krai region in the video stubbing patterns.
+- **LZX Compression & Optimizations:** Added NTFS LZX compression option for game assets and general optimizations to stubbing and locking logic.
 
-- **Current script version: v8**
 ### What's new in v8 (2026 Mar 1)
 - **Fast Re-Unlock:** To help release the lock when you actually have new content to download (in-game) - will trigger re-download but it's once!
 - **Added Gender-specific Stub All:** No more manually choosing traveler videos after 0.STUB ALL. (New options [G]irl/[B]oy, Option 0 still in script.)
@@ -56,8 +59,10 @@ This repository contains a single script which:
 2. Right-click the file and choose **"Run with PowerShell"** — or open PowerShell, navigate to the file location and run:
    ```powershell
    .\GenshinSlimmer.ps1
-### Screenshot of a run example from v8 
-<img width="784" height="671" alt="image" src="https://github.com/user-attachments/assets/63014caa-f1b0-4906-bb2c-1b7f8e7a39e6" />
+### Screenshot of a run example from v9
+<img width="730" height="626" alt="image" src="https://github.com/user-attachments/assets/68beecf0-c13a-4ee1-9785-9cc4c334e76c" />
+
+
 
 
    
