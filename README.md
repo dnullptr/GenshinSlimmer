@@ -60,7 +60,8 @@ This repository contains a single script which:
    ```powershell
    .\GenshinSlimmer.ps1
 ### Screenshot of a run example from v9
-<img width="730" height="626" alt="image" src="https://github.com/user-attachments/assets/68beecf0-c13a-4ee1-9785-9cc4c334e76c" />
+<img width="632" height="606" alt="image" src="https://github.com/user-attachments/assets/debd065e-a1e9-4808-91ac-6522b79120d2" />
+
 
 
 
