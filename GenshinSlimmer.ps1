@@ -1,12 +1,13 @@
 <#
-    GenshinSlimmer v9
+    GenshinSlimmer v10
     - Stubs files to 0KB to save space.
     - Applies "Aggressive Lock" (ACL Permissions) to prevent the game from 
       redownloading the stubbed files during its verification check.
-    
-    Findings:
-    - The game verifies files in 'Persistent' on startup (DownloadError.log).
-    - Locking the file permissions stops the redownload.
+    - Handles both .usm and .usm.bak files across StreamingAssets and Persistent folders.
+    - Supports all regions: Mondstadt, Liyue, Inazuma, Sumeru, Fontaine, Natlan, Nod-Krai, Snezhnaya (ZhìDōng / AQ70).
+    - Includes past events, Dainsleif quests, traveler gender cutscenes, and UGC audio cache.
+    - Includes interactive game folder scan/analysis mode.
+    - Includes LZX NTFS compression.
     
     Author: dnullptr
 #>
@@ -24,7 +25,7 @@ $UGCSearchPaths = @(
 function Get-GamePath {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v9" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v10" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host ""
@@ -105,16 +106,19 @@ function Toggle-FileLock {
 }
 
 # --- DEFINE PATTERNS ---
-$PatternsMondstadt = @("*Mengde*", "*MDAQ*", "*Venti*")
-$PatternsLiyue     = @("*LiYue*", "*LYAQ*")
-$PatternsSumeru    = @("*Sumeru*")
-$PatternsFontaine  = @("*Fontaine*")
-$PatternsNatlan    = @("*Natlan*")
-$PatternsBoy       = @("*Boy.usm")
-$PatternsGirl      = @("*Girl.usm")
+$PatternsMondstadt = @("*Mengde*", "*MDAQ*", "*Venti*", "*WDLQ*", "*Ambor*")
+$PatternsLiyue     = @("*LiYue*", "*LYAQ*", "*LY_*", "*LQ10*", "*LQ11*", "*XiaoPersonal*", "*ShenheBattle*", "*YunjinOpera*")
+$PatternsInazuma   = @("*Inazuma*", "*DaoQi*", "*200803*", "*200806*", "*200919*", "*201104*", "*200211*", "*LQ12*", "*ShougunBoss*", "*WanYeXian*")
+$PatternsSumeru    = @("*Sumeru*", "*Xm_*", "*LQ13*")
+$PatternsFontaine  = @("*Fontaine*", "*LQ14*")
+$PatternsNatlan    = @("*Natlan*", "*LQ15*")
+$PatternsNodKrai   = @("*NodKrai*", "*NK_*", "*LQ16*")
+$PatternsSnezhnaya = @("*ZD_*", "*AQ70*") # Snezhnaya (ZhìDōng / 至冬)
+$PatternsMisc      = @("*battlePass*", "*ChangeWeather*", "*EQ*", "*FD_*", "*GY*", "*Memories*", "*Reunion*", "*ShieldingResources*")
+$PatternsBoy       = @("*Boy*.usm*", "*PlayerBoy*.usm*")
+$PatternsGirl      = @("*Girl*.usm*", "*PlayerGirl*.usm*")
 
-# NodKrai region pattern
-$PatternsNodKrai   = @("*NodKrai*")
+$AllRegionPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsInazuma + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsNodKrai + $PatternsSnezhnaya + $PatternsMisc
 
 function Get-MatchingFiles {
     param ([array]$RelativePaths, [array]$Patterns)
@@ -134,6 +138,66 @@ function Get-MatchingFiles {
         }
     }
     return $AllFiles
+}
+
+function Process-Scan {
+    $CurrentLocation = Get-Location
+    Write-Host "`n=========================================" -ForegroundColor Cyan
+    Write-Host "   Genshin Impact Data Scan & Analysis" -ForegroundColor Yellow
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host "Scanning game directory: $CurrentLocation" -ForegroundColor DarkGray
+    Write-Host ""
+
+    $categories = [ordered]@{
+        "1. Mondstadt"           = $PatternsMondstadt
+        "2. Liyue"               = $PatternsLiyue
+        "3. Inazuma"             = $PatternsInazuma
+        "4. Sumeru"              = $PatternsSumeru
+        "5. Fontaine"            = $PatternsFontaine
+        "6. Natlan"              = $PatternsNatlan
+        "7. Nod-Krai"            = $PatternsNodKrai
+        "8. Snezhnaya (ZhìDōng)"  = $PatternsSnezhnaya
+        "9. Events & Misc"       = $PatternsMisc
+        "10. UGC Cache"          = @("*")
+    }
+
+    $totalGlobalBytes = 0
+    $totalGlobalCount = 0
+
+    foreach ($cat in $categories.Keys) {
+        $paths = if ($cat -like "*UGC*") { $UGCSearchPaths } else { $VideoSearchPaths }
+        $files = Get-MatchingFiles $paths $categories[$cat]
+        
+        $stats = $files | Measure-Object -Property Length -Sum
+        $count = $files.Count
+        $bytes = if ($stats.Sum) { $stats.Sum } else { 0 }
+        $gb = [math]::Round($bytes / 1GB, 2)
+
+        $totalGlobalBytes += $bytes
+        $totalGlobalCount += $count
+
+        $statusStr = if ($bytes -eq 0 -and $count -gt 0) { "[STUBBED]" } else { "$gb GB" }
+        $color = if ($bytes -eq 0 -and $count -gt 0) { "Green" } elseif ($count -eq 0) { "DarkGray" } else { "Cyan" }
+
+        Write-Host ("{0,-25} : {1,4} files | {2,10}" -f $cat, $count, $statusStr) -ForegroundColor $color
+    }
+
+    Write-Host "-----------------------------------------" -ForegroundColor DarkGray
+    $boyFiles  = Get-MatchingFiles $VideoSearchPaths $PatternsBoy
+    $girlFiles = Get-MatchingFiles $VideoSearchPaths $PatternsGirl
+    
+    $boyGB  = [math]::Round(($boyFiles  | Measure-Object -Property Length -Sum).Sum / 1GB, 2)
+    $girlGB = [math]::Round(($girlFiles | Measure-Object -Property Length -Sum).Sum / 1GB, 2)
+    
+    Write-Host ("Boy Traveler Cutscenes   : {0,4} files | {1,10} GB" -f $boyFiles.Count, $boyGB) -ForegroundColor Yellow
+    Write-Host ("Girl Traveler Cutscenes  : {0,4} files | {1,10} GB" -f $girlFiles.Count, $girlGB) -ForegroundColor Magenta
+    
+    Write-Host "=========================================" -ForegroundColor Cyan
+    $totalGB = [math]::Round($totalGlobalBytes / 1GB, 2)
+    Write-Host ("TOTAL STUBBABLE DATA     : {0,4} files | {1,10} GB" -f $totalGlobalCount, $totalGB) -ForegroundColor Green
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host ""
+    Read-Host "Press Enter to return to menu..."
 }
 
 function Process-Stubbing {
@@ -356,28 +420,34 @@ Get-GamePath
 do {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v9" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v10" -ForegroundColor Yellow
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host "Mode: Persistent + StreamingAssets (Aggressive Lock)" -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "Select content to stub & lock:"
-    Write-Host "1. Mondstadt"
-    Write-Host "2. Liyue"
-    Write-Host "3. Sumeru"
-    Write-Host "4. Fontaine"
-    Write-Host "5. Natlan"
-    Write-Host "6. Nod-Krai"
+    Write-Host " 1. Mondstadt"
+    Write-Host " 2. Liyue"
+    Write-Host " 3. Inazuma"
+    Write-Host " 4. Sumeru"
+    Write-Host " 5. Fontaine"
+    Write-Host " 6. Natlan"
+    Write-Host " 7. Nod-Krai"
+    Write-Host " 8. Snezhnaya (ZhìDōng / 7.0) " -NoNewline
+    Write-Host "[WARNING: FINISH 7.0 AQ First!]" -ForegroundColor Red
+    Write-Host " 9. Expired Events & Misc Cutscenes"
+    Write-Host "10. UGC Cache (BeyondUGC)"
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "7. UGC Cache"
-    Write-Host "8. Stub 'Boy' Videos"
-    Write-Host "9. Stub 'Girl' Videos"
-    Write-Host "U. UNLOCK ALL (Allow Re-download every major update)" -ForegroundColor Yellow
+    Write-Host " S. Scan & Analyze Game Folder" -ForegroundColor Yellow
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host "G. STUB ALL + GIRL (Regions + UGC + Girl)" -ForegroundColor Magenta
-    Write-Host "B. STUB ALL + BOY (Regions + UGC + Boy)" -ForegroundColor Cyan
-    Write-Host "0. STUB ALL (Regions + UGC - Without Boy/Girl)" -ForegroundColor Red
-    Write-Host "C. Compress Game Files (LZX)" -ForegroundColor Green
-    Write-Host "Q. Quit"
+    Write-Host " B. Stub 'Boy' Videos"
+    Write-Host " G. Stub 'Girl' Videos"
+    Write-Host " U. UNLOCK ALL (Allow Re-download before major patch)" -ForegroundColor Yellow
+    Write-Host "-----------------------------------------" -ForegroundColor DarkGray
+    Write-Host " G. STUB ALL + GIRL (Regions + Events + UGC + Girl)" -ForegroundColor Magenta
+    Write-Host " B. STUB ALL + BOY (Regions + Events + UGC + Boy)" -ForegroundColor Cyan
+    Write-Host " 0. STUB ALL (Regions + Events + UGC - Without Boy/Girl)" -ForegroundColor Red
+    Write-Host " C. Compress Game Files (LZX)" -ForegroundColor Green
+    Write-Host " Q. Quit"
     Write-Host "=========================================" -ForegroundColor Cyan
 
     $choice = Read-Host "Enter your choice"
@@ -389,68 +459,70 @@ do {
         'C' { Process-Compression; continue }
         'c' { Process-Compression; continue }
 
-        '1' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsMondstadt; $desc = "Mondstadt" }
-        '2' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsLiyue; $desc = "Liyue" }
-        '3' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSumeru; $desc = "Sumeru" }
-        '4' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsFontaine; $desc = "Fontaine" }
-        '5' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsNatlan; $desc = "Natlan" }
-        '6' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsNodKrai; $desc = "NodKrai" }
-        '7' { $selection = Get-MatchingFiles $UGCSearchPaths @("*"); $desc = "UGC Cache" }
-        '8' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsBoy; $desc = "Boy Videos" }
-        '9' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsGirl; $desc = "Girl Videos" }
+        'S' { Process-Scan; continue }
+        's' { Process-Scan; continue }
+
+        '1'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsMondstadt; $desc = "Mondstadt" }
+        '2'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsLiyue; $desc = "Liyue" }
+        '3'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsInazuma; $desc = "Inazuma" }
+        '4'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSumeru; $desc = "Sumeru" }
+        '5'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsFontaine; $desc = "Fontaine" }
+        '6'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsNatlan; $desc = "Natlan" }
+        '7'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsNodKrai; $desc = "NodKrai" }
+        '8'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSnezhnaya; $desc = "Snezhnaya" }
+        '9'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsMisc; $desc = "Events & Misc" }
+        '10' { $selection = Get-MatchingFiles $UGCSearchPaths @("*"); $desc = "UGC Cache" }
 
         'U' {
             Write-Host "`nScanning for stubbed & locked files..." -ForegroundColor Cyan
-            $AllPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsBoy + $PatternsGirl + $PatternsNodKrai
+            $AllPatterns = $AllRegionPatterns + $PatternsBoy + $PatternsGirl
             $selection += Get-MatchingFiles $VideoSearchPaths $AllPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
             $desc = "UNLOCK ALL"
         }
         'u' {
             Write-Host "`nScanning for stubbed & locked files..." -ForegroundColor Cyan
-            $AllPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsBoy + $PatternsGirl + $PatternsNodKrai
+            $AllPatterns = $AllRegionPatterns + $PatternsBoy + $PatternsGirl
             $selection += Get-MatchingFiles $VideoSearchPaths $AllPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
             $desc = "UNLOCK ALL"
         }
 
         'G' {
-            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsNodKrai + $PatternsGirl
+            $AllVideoPatterns = $AllRegionPatterns + $PatternsGirl
             $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + UGC + GIRL"
+            $desc = "ALL REGIONS + EVENTS + UGC + GIRL"
         }
         'g' {
-            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsNodKrai + $PatternsGirl
+            $AllVideoPatterns = $AllRegionPatterns + $PatternsGirl
             $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + UGC + GIRL"
+            $desc = "ALL REGIONS + EVENTS + UGC + GIRL"
         }
         'B' {
-            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsNodKrai + $PatternsBoy
+            $AllVideoPatterns = $AllRegionPatterns + $PatternsBoy
             $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + UGC + BOY"
+            $desc = "ALL REGIONS + EVENTS + UGC + BOY"
         }
         'b' {
-            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsNodKrai + $PatternsBoy
+            $AllVideoPatterns = $AllRegionPatterns + $PatternsBoy
             $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + UGC + BOY"
+            $desc = "ALL REGIONS + EVENTS + UGC + BOY"
         }
         '0' { 
-            $AllVideoPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsNodKrai
-            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllRegionPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + UGC"
+            $desc = "ALL REGIONS + EVENTS + UGC"
         }
         'Q' { break }
         'q' { break }
     }
 
-    if ($choice -in '1','2','3','4','5','6','7','8','9','G','g','B','b','0','U','u') {
+    if ($choice -in '1','2','3','4','5','6','7','8','9','10','G','g','B','b','0','U','u') {
         if ($choice -in 'U','u') {
-            # Special handling for Unlock All (letter U)
             Process-UnlockOnly -FilesToUnlock $selection -Description $desc
         } else {
             Process-Stubbing -FilesToStub $selection -Description $desc
