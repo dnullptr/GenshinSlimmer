@@ -397,7 +397,7 @@ function Restore-Manifest {
 }
 
 # --- DEFINE PATTERNS ---
-$PatternsMondstadt = @("*Mengde*", "*MDAQ*", "*Venti*", "*WDLQ*", "*Ambor*")
+$PatternsMondstadt = @("*Mengde*", "*MDAQ*", "*Venti*", "*WDLQ*", "*Ambor*", "*Cs_102*")
 $PatternsLiyue     = @("*LiYue*", "*LYAQ*", "*LY_*", "*LQ10*", "*LQ11*", "*XiaoPersonal*", "*ShenheBattle*", "*YunjinOpera*")
 $PatternsInazuma   = @("*Inazuma*", "*DaoQi*", "*200803*", "*200806*", "*200919*", "*201104*", "*200211*", "*LQ12*", "*ShougunBoss*", "*WanYeXian*")
 $PatternsSumeru    = @("*Sumeru*", "*Xm_*", "*LQ13*")
@@ -405,7 +405,7 @@ $PatternsFontaine  = @("*Fontaine*", "*LQ14*")
 $PatternsNatlan    = @("*Natlan*", "*LQ15*")
 $PatternsNodKrai   = @("*NodKrai*", "*NK_*", "*LQ16*")
 $PatternsSnezhnaya = @("*ZD_*", "*ZD71*", "*AQ70*", "*AQ71*", "*LQ17*", "*Snezhnaya*") # Snezhnaya (ZhìDōng / 至冬) - 7.0 AQ70 + 7.1 AQ71 (A Rekviem for the Underworld)
-$PatternsMisc      = @("*battlePass*", "*ChangeWeather*", "*EQ*", "*FD_*", "*GY*", "*Memories*", "*Reunion*", "*ShieldingResources*")
+$PatternsMisc      = @("*battlePass*", "*ChangeWeather*", "*EQ*", "*FD_*", "*GY*", "*Memories*", "*Reunion*", "*ShieldingResources*", "*Backstory*")
 $PatternsBoy       = @("*Boy*.usm*", "*PlayerBoy*.usm*")
 $PatternsGirl      = @("*Girl*.usm*", "*PlayerGirl*.usm*")
 
