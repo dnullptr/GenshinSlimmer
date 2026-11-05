@@ -68,3 +68,7 @@ If you skip step 1 it still works. The launcher just repairs the stubs during th
 - **Global:** Unused Gender Videos (Aether/Lumine variants)
 
 ---
+### Screenshots from v13 (Both GUI and Terminal script)
+<img width="1020" height="999" alt="image" src="https://github.com/user-attachments/assets/56c1cc01-2226-4939-91ff-022c06654f66" />
+<img width="1218" height="931" alt="image" src="https://github.com/user-attachments/assets/10151893-683f-4237-9f70-4ea2a3895984" />
+
