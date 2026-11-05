@@ -7,11 +7,16 @@ GenshinSlimmer is a utility that helps reclaim disk space by safely replacing pr
 
 - **Current script version: v13**
 
-### What's new in v13 (2026 Nov) - 7.2 Support & Launcher pkg_version Sync
-- **Launcher `pkg_version` Sync (`[P]`, EXPERIMENTAL):** The HoYoPlay launcher validates the game folder against `pkg_version` in the game root, not against the in-game manifests. `[P]` registers your 0KB stubs there too (`fileSize: 0`, empty-file `md5`/`hash`), in an attempt to stop the launcher's repair/verify from re-downloading them. It is opt-in, keeps a `pkg_version.bak`, can be reverted from the same menu, and is also reverted automatically per file when you use `[U]` -> `[2]`. See [Major updates & the HoYoPlay launcher](#major-updates--the-hoyoplay-launcher) for what is and is not known.
-- **Verified on 7.2:** All 280 cutscene videos shipped in 7.2 (including the new `Cs_ZD_AQ70xx` Snezhnaya chapters and `Video_Reunion_72`) are covered by the existing patterns, and the manifest format (`remoteName` / `md5` / `hash` / `fileSize`) and the empty-file hash are unchanged.
+### What's new in v13 (2026 Nov) - 7.2 Support, Split Snezhnaya Options & Launcher pkg_version Sync
+- **Split Snezhnaya Options (`[8]` for 7.0–7.1 & `[8b]` for 7.2):**
+  - **`[8]` Snezhnaya 7.0–7.1 (Up to 7.1 AQ — 3.93 GB):** Stubs all 17 Snezhnaya cutscenes from 7.0 and 7.1 (`AQ7008` through `AQ7020`) while keeping all 7.2 Archon Quest cutscenes intact.
+  - **`[8b]` Snezhnaya 7.2 (7.2 AQ — 0.49 GB):** Dedicated option for the 5 new 7.2 Archon Quest cutscenes (`AQ7023`, `AQ7025`, `AQ7031`) once you have finished 7.2.
+  - **Safe Bulk Stubbing (`[0]` / `[B]` / `[G]`):** Bulk options now stub everything **up to 7.1** (including Snezhnaya 7.0–7.1) and intentionally exclude 7.2 AQ cutscenes, so players can reclaim ~40 GB immediately after updating to 7.2 without waiting to finish the new Archon Quest.
+- **Launcher `pkg_version` Sync (`[P]`, EXPERIMENTAL):** The HoYoPlay launcher validates the game folder against `pkg_version` in the game root, not against the in-game manifests. `[P]` registers your 0KB stubs there too (`fileSize: 0`, empty-file `md5`/`hash`), in an attempt to stop the launcher's repair/verify from re-downloading them. It is opt-in, keeps a `pkg_version.bak`, can be reverted from the same menu, and is also reverted automatically per file when you use `[U]` -> `[2]`. See [Major updates & the HoYoPlay launcher](#major-updates--the-hoyoplay-launcher-read-before-a-big-patch) for what is and is not known.
+- **Verified on 7.2:** All 280 cutscene videos shipped in 7.2 (including the new `Cs_ZD_AQ70xx` Snezhnaya chapters and `Video_Reunion_72`) are covered, and the manifest format (`remoteName` / `md5` / `hash` / `fileSize`) and the empty-file hash are unchanged.
 - **QoL (community contribution):** Added the Prologue `Cs_102*` cutscenes (Mondstadt category) and `*Backstory*` cutscenes (Events & Misc category).
 - **Backups no longer go stale:** `res_versions_persist.bak` (and the other manifest `.bak` files) are now refreshed whenever the live manifest is pristine, instead of being created only once. Previously the backup could stay at an older game version across a major update.
+- **Supported Regions:** Mondstadt, Liyue, Inazuma, Sumeru, Fontaine, Natlan, Nod-Krai, Snezhnaya 7.0–7.1 (`[8]`), and Snezhnaya 7.2 (`[8b]`).
 
 
 ### What's new in v12 (2026 Oct 30) - 7.1 Compatibility & Multi-Manifest Engine
@@ -55,7 +60,7 @@ If you skip step 1 it still works. The launcher just repairs the stubs during th
 - **NTFS LZX Compression:** Built-in option (`[C]`) using Windows `compact.exe` for extra compression savings on PC.
 
 ### Supported Optimization Options
-- **Regions:** Mondstadt, Liyue, Inazuma, Sumeru, Fontaine, Natlan, Nod-Krai, Snezhnaya (ZhìDōng / 7.0 & 7.1)
+- **Regions:** Mondstadt, Liyue, Inazuma, Sumeru, Fontaine, Natlan, Nod-Krai, Snezhnaya 7.0–7.1 (`[8]`), Snezhnaya 7.2 (`[8b]`)
 - **Quests & Events:** Interlude Quests, Legend Quests, Expired Events & Misc Cutscenes
 - **UGC Cache:** Miliastra Wonderland / BeyondUGC audio cache
 - **Global:** Unused Gender Videos (Aether/Lumine variants)

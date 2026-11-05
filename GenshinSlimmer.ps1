@@ -17,7 +17,9 @@
       across major updates (a stale .bak from an older version could otherwise downgrade a manifest on restore).
     - Eliminates restrictive ACL Deny locks (which caused Error -9908 and download loops).
     - Revision Manager: View and sync R/S/D revisions (res_revision, silence_revision, data_revision).
-    - Supports all regions: Mondstadt, Liyue, Inazuma, Sumeru, Fontaine, Natlan, Nod-Krai, Snezhnaya (ZhìDōng / AQ70 / AQ71 - 7.1).
+    - Supports all regions: Mondstadt, Liyue, Inazuma, Sumeru, Fontaine, Natlan, Nod-Krai,
+      Snezhnaya 7.0-7.1 (option 8, included in STUB ALL) and Snezhnaya 7.2 (option 8b, kept separate
+      so players can stub everything up to 7.1 before finishing the 7.2 Archon Quest).
     - Dedicated gender options: Boy Traveler only, Girl Traveler only, or bulk.
     - Handles both .usm and .usm.bak files across StreamingAssets and Persistent folders.
     - Includes interactive game folder scan/analysis mode.
@@ -582,16 +584,19 @@ $PatternsInazuma   = @("*Inazuma*", "*DaoQi*", "*200803*", "*200806*", "*200919*
 $PatternsSumeru    = @("*Sumeru*", "*Xm_*", "*LQ13*")
 $PatternsFontaine  = @("*Fontaine*", "*LQ14*")
 $PatternsNatlan    = @("*Natlan*", "*LQ15*")
-$PatternsNodKrai   = @("*NodKrai*", "*NK_*", "*LQ16*")
-$PatternsSnezhnaya = @("*ZD_*", "*ZD71*", "*AQ70*", "*AQ71*", "*LQ17*", "*Snezhnaya*") # Snezhnaya (ZhìDōng / 至冬) - 7.0 AQ70 + 7.1 AQ71 (A Rekviem for the Underworld)
-$PatternsMisc      = @("*battlePass*", "*ChangeWeather*", "*EQ*", "*FD_*", "*GY*", "*Memories*", "*Reunion*", "*ShieldingResources*", "*Backstory*")
-$PatternsBoy       = @("*Boy*.usm*", "*PlayerBoy*.usm*")
-$PatternsGirl      = @("*Girl*.usm*", "*PlayerGirl*.usm*")
+$PatternsNodKrai     = @("*NodKrai*", "*NK_*", "*LQ16*")
+# Snezhnaya (ZhìDōng / 至冬) split so players can stub 7.0-7.1 (3.93 GB) before finishing the 7.2 AQ:
+$PatternsSnezhnaya   = @("*AQ7008*", "*AQ7009*", "*AQ7013*", "*AQ7017*", "*AQ7019*", "*AQ7020*", "*ZD70*", "*ZD71*", "*AQ70_*", "*AQ71*")
+$PatternsSnezhnaya72 = @("*AQ7023*", "*AQ7025*", "*AQ7031*", "*ZD72*", "*AQ72*", "*LQ17*")
+$PatternsMisc        = @("*battlePass*", "*ChangeWeather*", "*EQ*", "*FD_*", "*GY*", "*Memories*", "*Reunion*", "*ShieldingResources*", "*Backstory*")
+$PatternsBoy         = @("*Boy*.usm*", "*PlayerBoy*.usm*")
+$PatternsGirl        = @("*Girl*.usm*", "*PlayerGirl*.usm*")
 
+# Bulk STUB ALL (0 / B / G) stubs up to 7.1 Snezhnaya and intentionally excludes 7.2 AQ ($PatternsSnezhnaya72)
 $AllRegionPatterns = $PatternsMondstadt + $PatternsLiyue + $PatternsInazuma + $PatternsSumeru + $PatternsFontaine + $PatternsNatlan + $PatternsNodKrai + $PatternsSnezhnaya + $PatternsMisc
 
 function Get-MatchingFiles {
-    param ([array]$RelativePaths, [array]$Patterns)
+    param ([array]$RelativePaths, [array]$Patterns, [array]$ExcludePatterns = @())
     $AllFiles = @()
     $CurrentLocation = Get-Location
 
@@ -602,6 +607,9 @@ function Get-MatchingFiles {
                 $name = $_.Name
                 $matched = $false
                 foreach ($pattern in $Patterns) { if ($name -like $pattern) { $matched = $true; break } }
+                if ($matched -and $ExcludePatterns.Count -gt 0) {
+                    foreach ($ex in $ExcludePatterns) { if ($name -like $ex) { $matched = $false; break } }
+                }
                 $matched
             }
             $AllFiles += $files
@@ -626,7 +634,8 @@ function Process-Scan {
         "5. Fontaine"            = $PatternsFontaine
         "6. Natlan"              = $PatternsNatlan
         "7. Nod-Krai"            = $PatternsNodKrai
-        "8. Snezhnaya (ZhìDōng)"  = $PatternsSnezhnaya
+        "8. Snezhnaya (7.0-7.1)" = $PatternsSnezhnaya
+        "8b. Snezhnaya (7.2)"    = $PatternsSnezhnaya72
         "9. Events & Misc"       = $PatternsMisc
         "10. UGC Cache"          = @("*")
     }
@@ -984,7 +993,8 @@ do {
     Write-Host " 5. Fontaine"
     Write-Host " 6. Natlan"
     Write-Host " 7. Nod-Krai"
-    Write-Host " 8. Snezhnaya (ZhìDōng / 7.0-7.2) " -NoNewline
+    Write-Host " 8. Snezhnaya 7.0-7.1 (ZhìDōng - Up to 7.1 AQ)" -ForegroundColor Green
+    Write-Host "8b. Snezhnaya 7.2     (ZhìDōng - 7.2 AQ) " -NoNewline
     Write-Host "[WARNING: FINISH 7.2 AQ First!]" -ForegroundColor Red
     Write-Host " 9. Expired Events & Misc Cutscenes"
     Write-Host "10. UGC Cache (BeyondUGC)"
@@ -997,9 +1007,9 @@ do {
     Write-Host " P. Sync Launcher pkg_version (EXPERIMENTAL - try to stop launcher repair re-downloads)" -ForegroundColor Magenta
     Write-Host " U. UNLOCK / Restore Files & Clean Legacy ACLs" -ForegroundColor Yellow
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
-    Write-Host " B. STUB ALL + BOY (Regions + Events + UGC + Boy)" -ForegroundColor Cyan
-    Write-Host " G. STUB ALL + GIRL (Regions + Events + UGC + Girl)" -ForegroundColor Magenta
-    Write-Host " 0. STUB ALL (Regions + Events + UGC - Without Boy/Girl)" -ForegroundColor Red
+    Write-Host " B. STUB ALL + BOY  (Up to 7.1 + Events + UGC + Boy  | Keeps 7.2 AQ)" -ForegroundColor Cyan
+    Write-Host " G. STUB ALL + GIRL (Up to 7.1 + Events + UGC + Girl | Keeps 7.2 AQ)" -ForegroundColor Magenta
+    Write-Host " 0. STUB ALL        (Up to 7.1 + Events + UGC - Without Boy/Girl)" -ForegroundColor Red
     Write-Host " C. Compress Game Files (LZX)" -ForegroundColor Green
     Write-Host " Q. Quit"
     Write-Host "=========================================" -ForegroundColor Cyan
@@ -1031,23 +1041,27 @@ do {
         '4'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSumeru; $desc = "Sumeru" }
         '5'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsFontaine; $desc = "Fontaine" }
         '6'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsNatlan; $desc = "Natlan" }
-        '7'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsNodKrai; $desc = "NodKrai" }
-        '8'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSnezhnaya; $desc = "Snezhnaya" }
-        '9'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsMisc; $desc = "Events & Misc" }
-        '10' { $selection = Get-MatchingFiles $UGCSearchPaths @("*"); $desc = "UGC Cache" }
-        '11' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsBoy; $desc = "Boy Traveler Videos Only" }
-        '12' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsGirl; $desc = "Girl Traveler Videos Only" }
+        '7'   { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsNodKrai; $desc = "NodKrai" }
+        '8'   { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSnezhnaya; $desc = "Snezhnaya (7.0-7.1)" }
+        '8b'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSnezhnaya72; $desc = "Snezhnaya (7.2)" }
+        '8B'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSnezhnaya72; $desc = "Snezhnaya (7.2)" }
+        '8.2' { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSnezhnaya72; $desc = "Snezhnaya (7.2)" }
+        '13'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsSnezhnaya72; $desc = "Snezhnaya (7.2)" }
+        '9'   { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsMisc; $desc = "Events & Misc" }
+        '10'  { $selection = Get-MatchingFiles $UGCSearchPaths @("*"); $desc = "UGC Cache" }
+        '11'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsBoy; $desc = "Boy Traveler Videos Only" }
+        '12'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsGirl; $desc = "Girl Traveler Videos Only" }
 
         'U' {
             Write-Host "`nScanning for stubbed files..." -ForegroundColor Cyan
-            $AllPatterns = $AllRegionPatterns + $PatternsBoy + $PatternsGirl
+            $AllPatterns = $AllRegionPatterns + $PatternsSnezhnaya72 + $PatternsBoy + $PatternsGirl
             $selection += Get-MatchingFiles $VideoSearchPaths $AllPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
             $desc = "UNLOCK / RESTORE ALL"
         }
         'u' {
             Write-Host "`nScanning for stubbed files..." -ForegroundColor Cyan
-            $AllPatterns = $AllRegionPatterns + $PatternsBoy + $PatternsGirl
+            $AllPatterns = $AllRegionPatterns + $PatternsSnezhnaya72 + $PatternsBoy + $PatternsGirl
             $selection += Get-MatchingFiles $VideoSearchPaths $AllPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
             $desc = "UNLOCK / RESTORE ALL"
@@ -1055,38 +1069,38 @@ do {
 
         'G' {
             $AllVideoPatterns = $AllRegionPatterns + $PatternsGirl
-            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns $PatternsSnezhnaya72
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + EVENTS + UGC + GIRL"
+            $desc = "ALL REGIONS (UP TO 7.1) + EVENTS + UGC + GIRL"
         }
         'g' {
             $AllVideoPatterns = $AllRegionPatterns + $PatternsGirl
-            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns $PatternsSnezhnaya72
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + EVENTS + UGC + GIRL"
+            $desc = "ALL REGIONS (UP TO 7.1) + EVENTS + UGC + GIRL"
         }
         'B' {
             $AllVideoPatterns = $AllRegionPatterns + $PatternsBoy
-            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns $PatternsSnezhnaya72
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + EVENTS + UGC + BOY"
+            $desc = "ALL REGIONS (UP TO 7.1) + EVENTS + UGC + BOY"
         }
         'b' {
             $AllVideoPatterns = $AllRegionPatterns + $PatternsBoy
-            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllVideoPatterns $PatternsSnezhnaya72
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + EVENTS + UGC + BOY"
+            $desc = "ALL REGIONS (UP TO 7.1) + EVENTS + UGC + BOY"
         }
         '0' { 
-            $selection += Get-MatchingFiles $VideoSearchPaths $AllRegionPatterns
+            $selection += Get-MatchingFiles $VideoSearchPaths $AllRegionPatterns $PatternsSnezhnaya72
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
-            $desc = "ALL REGIONS + EVENTS + UGC"
+            $desc = "ALL REGIONS (UP TO 7.1) + EVENTS + UGC"
         }
         'Q' { break }
         'q' { break }
     }
 
-    if ($choice -in '1','2','3','4','5','6','7','8','9','10','11','12','G','g','B','b','0','U','u') {
+    if ($choice -in '1','2','3','4','5','6','7','8','8b','8B','8.2','13','9','10','11','12','G','g','B','b','0','U','u') {
         if ($choice -in 'U','u') {
             Process-UnlockOnly -FilesToUnlock $selection -Description $desc
         } else {
