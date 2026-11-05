@@ -1,24 +1,47 @@
 ##                                                                GenshinSlimmer
-<p align="center"><img width="512" height="768" alt="fin" src="https://github.com/user-attachments/assets/9813ea66-741a-4f85-ad19-5c33f72a46ff" /></p>
-GenshinSlimmer is a small PowerShell utility that helps reclaim disk space by safely replacing pre-rendered cutscene videos, unused audio cache, and duplicate gendered assets with empty "stubs" in Genshin Impact.
+<p align="center"><img width="256" height="512" alt="fin" src="https://github.com/user-attachments/assets/9813ea66-741a-4f85-ad19-5c33f72a46ff" /></p>
+GenshinSlimmer is a utility that helps reclaim disk space by safely replacing pre-rendered cutscene videos, unused audio cache, and duplicate gendered assets with empty "stubs" in Genshin Impact.
 
-This repository contains a single script which:
-- finds the game's asset folders automatically (including `StreamingAssets` and `Persistent` data locations),
-- calculates how much space will be freed,
-- provides a non-destructive **Scan & Analyze** preview mode (`[S]`)
-- stubs the files to be 0kb with a new, reworked method of preventing re-downloads with a nicely detailed menu!
+This repository contains:
+- `GenshinSlimmer.ps1`: Windows PowerShell edition.
+- `GenshinSlimmer_iOS.ps1`: Remote PC runner for jailbroken iOS over Wi-Fi via `ios-mcp`.
+- `genshin_slimmer_ios.py`: Native iOS edition (Python 3) for on-device terminal (SSH / NewTerm / Filza).
 
 ### Version
 
-- **Current script version: v12**
+- **Current script version: v13**
 
-  
-### What's new in v12 (2026 Oct 14)
-- **Fix for 7.1**: also patches the "hash" field, matches remoteName by filename
-      suffix (handles VideoAssets/ prefix changes), and scans ALL versions persist
-      manifests (res + audio) instead of only res_versions_persist.
-- **New Regexes for Snezhnaya**: Snezhnaya patterns extended for 7.1: *ZD71*, *AQ71*, *LQ17*, *Snezhnaya*.
-- **QoL syncs and cleanups**: Fitting 7.1 changes. (Thanks [@CiTyMrX](https://github.com/CiTyMrX) for the contribution)
+### What's new in v13 (2026 Nov) - 7.2 Support & Launcher pkg_version Sync
+- **Launcher `pkg_version` Sync (`[P]`, EXPERIMENTAL):** The HoYoPlay launcher validates the game folder against `pkg_version` in the game root, not against the in-game manifests. `[P]` registers your 0KB stubs there too (`fileSize: 0`, empty-file `md5`/`hash`), in an attempt to stop the launcher's repair/verify from re-downloading them. It is opt-in, keeps a `pkg_version.bak`, can be reverted from the same menu, and is also reverted automatically per file when you use `[U]` -> `[2]`. See [Major updates & the HoYoPlay launcher](#major-updates--the-hoyoplay-launcher) for what is and is not known.
+- **Verified on 7.2:** All 280 cutscene videos shipped in 7.2 (including the new `Cs_ZD_AQ70xx` Snezhnaya chapters and `Video_Reunion_72`) are covered by the existing patterns, and the manifest format (`remoteName` / `md5` / `hash` / `fileSize`) and the empty-file hash are unchanged.
+- **QoL (community contribution):** Added the Prologue `Cs_102*` cutscenes (Mondstadt category) and `*Backstory*` cutscenes (Events & Misc category).
+- **Backups no longer go stale:** `res_versions_persist.bak` (and the other manifest `.bak` files) are now refreshed whenever the live manifest is pristine, instead of being created only once. Previously the backup could stay at an older game version across a major update.
+- **iOS Edition v13:** Same pattern additions and backup fix, and stub detection now only treats files of exactly 0 bytes as stubs (tiny real files such as `.cuepoint` are never registered as stubs).
+
+### What's new in v12 (2026 Oct 30) - 7.1 Compatibility & Multi-Manifest Engine
+- **7.1 Strict Hash Verification Fix:** Patches the `"hash"` field (`ef46db3751d8e999`, 0-byte hash) alongside `"fileSize": 0` and `"md5": "d41d8cd98f00b204e9800998ecf8427e"`, bypassing 7.1's strict hash integrity checks that triggered re-downloads.
+- **Path-Robust Suffix Matching:** Matches `remoteName` entries by filename suffix, gracefully handling `VideoAssets/` and platform prefix variations introduced in 7.1.
+- **Multi-Manifest Discovery:** Automatically locates and synchronizes all `*versions*persist*` and `audio_versions*` manifests across `Persistent` data.
+- **Snezhnaya 7.1 Cutscenes:** Added coverage for 7.1 cutscenes (`*ZD71*`, `*AQ71*`, `*LQ17*`, `*Snezhnaya*`).
+- **iOS Edition v12:** Ported the full v12 Manifest Sync Engine, individual region selections (1-10), UGC BeyondUGC audio cache stubbing, and In-Game Revision Manager to iOS.
+
+### Major updates & the HoYoPlay launcher (read before a big patch)
+
+The manifest trick covers the **in-game** updater only: it stops the game's "minor update" downloads and the in-game resource check from re-fetching stubbed files. The **HoYoPlay launcher** is a separate check. It validates the game folder against `pkg_version` in the game root (one entry per file with the real `md5`/`fileSize`). On a major patch (7.x -> 7.y) the launcher can flag every stub as damaged and re-download it during its update/repair.
+
+**Experimental (v13):** option `[P]` registers the stubs in `pkg_version` as well. What is known and what is not:
+- Known: `pkg_version` lists all 279 videos and the UGC audio files with their real md5/size, so unpatched stubs always fail that check.
+- Not known: whether the launcher trusts the local `pkg_version` or downloads a fresh copy from the server when it updates or repairs. If it fetches a fresh copy, `[P]` has no effect on that run (it is harmless; use `[P]` -> `[2]` to revert). Please report what you see.
+- A launcher update/repair rewrites `pkg_version`, so run `[P]` again after an update. `pkg_version.bak` is refreshed automatically whenever the file is unpatched, and reverting only touches entries that are still patched, so a stale backup can never downgrade a newer `pkg_version`.
+- Close the launcher before using `[P]`, otherwise the file may be locked.
+
+Recommended workflow for a major update (works whether or not `[P]` helps):
+1. **Before updating:** run the script, choose **`U`** and then **`[2] Delete Stubs & Restore Manifest`**. This puts the manifest (and `pkg_version`, if you used `[P]`) back to the original values and removes the stubs, so the launcher update and repair run as one clean pass.
+2. Let the launcher update the game (and repair/verify if it asks).
+3. Launch the game once to the start door, so it generates the new `res_versions_persist`.
+4. Run the script again (`0` / `B` / `G` or your chosen options, then `[P]` if you want to keep testing it) to re-stub and re-sync.
+
+If you skip step 1 it still works. The launcher just repairs the stubs during the update and you re-run the script afterwards.
 
 ### What's new in v11 (2026 Sep 24) - Major Improvements!
 - **Manifest Synchronization Engine (`[M]`):** Completely replaces restrictive Windows ACL Deny locks with direct `res_versions_persist` manifest synchronization. Stubbed 0KB files are registered as valid 0KB assets in the game's own asset database, passing integrity verification instantly and permanently stopping in-game patch re-downloads.
@@ -27,59 +50,38 @@ This repository contains a single script which:
 - **Fixed Menu Option Collisions (`[11]` / `[12]`):** Fixed duplicate `B` and `G` menu keys by giving standalone Traveler Gender cutscenes dedicated options (`11` for Boy, `12` for Girl), keeping `B` and `G` for bulk operations.
 - **Safe ACL Stripping (`[U]`):** Option to strip legacy `Deny Write, Delete` permissions left over from older versions, preventing `Download error -9908` and startup deadlocks.
 
-### What's new in v10 (2026 Aug 14)
-- **Snezhnaya Region (ZhìDōng / 7.0):** Added support for Snezhnaya (`*ZD_*`, `*AQ70*`) cutscenes.
-- **Inazuma Region:** Restored and expanded dedicated Inazuma region pattern matching (`*Inazuma*`, `*DaoQi*`, `*200803*`, `*200806*`, `*200919*`, `*201104*`, `*200211*`, `*LQ12*`, `*ShougunBoss*`, `*WanYeXian*`).
-- **Complete Quest & Event Coverage:** Expanded pattern matching across all Legend Quests (`LQ10` through `LQ16`), World/Side Quests (`WQ...`), and expired event cutscenes (`Cs_EQ_...`, `Cs_FD_...`, `battlePass`, `Reunion`, etc.).
-- **Anti Re-download Fix (`.usm.bak` ACL Locking):** Extended ACL permissions (`Deny Write, Delete` + `ReadOnly`) to `.usm.bak` files in `GenshinImpact_Data\Persistent\VideoAssets` to prevent the launcher's verification check from triggering 30GB+ re-downloads.
-- **Scan & Analyze Mode (`[S]`):** Interactive mode to scan and display exact disk usage and file status per region and category before stubbing.
-
-### What's new in v9 (2026 May 26)
-- **Nod-Krai Region:** Added support for the Nod-Krai region in the video stubbing patterns.
-- **LZX Compression & Optimizations:** Added NTFS LZX compression option (`[C]`) for game assets and general optimizations to stubbing and locking logic.
-
-### What's new in v8 (2026 Mar 1)
-- **Fast Re-Unlock:** To help release the lock when you actually have new content to download (in-game) - will trigger re-download but it's once!
-- **Added Gender-specific Stub All:** No more manually choosing traveler videos after `0. STUB ALL`. (New options `[G]irl`/`[B]oy`, Option `0` still in script.)
-
-### What's new in v7 (2026 Jan 26)
-- **Aggressive Locking (ACL):** To prevent the game's launcher from automatically re-downloading deleted files, applies strict Windows Access Control permissions ("Deny Write") to the stubbed files.
-- **Unlock & Restore (`[U]`):** Menu option to verify, unlock, and restore permissions. Essential before running major launcher updates.
-- **Persistent Folder Support:** Safely handles the `Persistent` folder where newer game assets live.
-- **Read-Only Fixes:** Improved handling of file attributes during stubbing.
-
-### What's new in v6
-- **Stubbing instead of Deleting:** Replaces large video files with empty (0KB) files rather than deleting them.
-- **Smart Path Saving:** Saves game path to `path.ini` so you only enter it once.
-- **Dual Folder Scanning:** Scans both `StreamingAssets` and `Persistent` folders.
-
 ### Features
 - **Universal path finder:** Locates cutscene/video folders automatically given the "Genshin Impact game" folder.
 - **Config Persistence:** Saves game path to `path.ini`.
 - **Space calculator & Scan Mode:** Reports total space to be reclaimed (MB / GB) and status per region (`[S]`).
-- **Anti-Redownload Manifest Engine:** Synchronizes the internal asset database (`res_versions_persist`) to mark 0KB stubs as intact, permanently stopping patcher redownloads without restrictive ACL locks.
-- **NTFS LZX Compression:** Built-in option (`[C]`) using Windows `compact.exe` for extra compression savings.
+- **Anti-Redownload Manifest Engine:** Synchronizes the internal asset database (`res_versions_persist` and variants) to mark 0KB stubs as intact, permanently stopping patcher redownloads.
+- **Launcher `pkg_version` Sync (experimental, `[P]`):** Optionally registers stubs in the launcher's own file list as well.
+- **NTFS LZX Compression:** Built-in option (`[C]`) using Windows `compact.exe` for extra compression savings on PC.
 
 ### Supported Optimization Options
-- **Regions:** Mondstadt, Liyue, Inazuma, Sumeru, Fontaine, Natlan, Nod-Krai, Snezhnaya (ZhìDōng)
+- **Regions:** Mondstadt, Liyue, Inazuma, Sumeru, Fontaine, Natlan, Nod-Krai, Snezhnaya (ZhìDōng / 7.0 & 7.1)
 - **Quests & Events:** Interlude Quests, Legend Quests, Expired Events & Misc Cutscenes
-- **UGC Cache:** Miliastra Wonderland / BeyondUGC audio folder
+- **UGC Cache:** Miliastra Wonderland / BeyondUGC audio cache
 - **Global:** Unused Gender Videos (Aether/Lumine variants)
 
-### Requirements
-- Windows 10+ with PowerShell (built-in).
-- Administrative privileges (the script automatically prompts for elevation and handles ExecutionPolicy bypass if not already running as Admin).
+---
 
-### Usage
-1. Download `GenshinSlimmer.ps1` from this repository.
-2. Right-click the file and choose **"Run with PowerShell"** — or run from your terminal:
+### iOS Edition (Jailbroken Devices)
+
+GenshinSlimmer supports jailbroken iOS devices (e.g. Dopamine rootless / Palera1n) to reclaim phone storage by stubbing cutscene videos (`.usm`) and UGC audio cache (`BeyondUGC`) and synchronizing mobile `*versions*persist*` manifests.
+
+#### Method 1: Remote via PC (iOS MCP)
+If your iPhone runs the `ios-mcp` server:
+1. Run `GenshinSlimmer_iOS.ps1` in PowerShell:
    ```powershell
-   .\GenshinSlimmer.ps1
+   .\GenshinSlimmer_iOS.ps1
    ```
-   *(If not running as Admin, a Windows UAC prompt will appear to automatically elevate.)*
+2. The script connects to your iPhone over Wi-Fi, deploys the tool, and provides a menu to scan, stub videos, and sync manifests without touching your phone.
 
-### Screenshot of a run example from v11
-<img width="656" height="576" alt="Screenshot 2026-09-24 015828" src="https://github.com/user-attachments/assets/487f66f4-6a4a-428b-9fba-61e2609a0758" />
-
-<img width="848" height="457" alt="image" src="https://github.com/user-attachments/assets/d7073824-543d-4630-ab68-e30ed9d72416" />
-
+#### Method 2: On-Device (SSH / NewTerm / Filza)
+1. Copy [genshin_slimmer_ios.py](file:///c:/Users/Daniel/Downloads/genshin_slimmer/genshin_slimmer_ios.py) to `/var/mobile/genshin_slimmer.py` on your iPhone.
+2. In SSH or NewTerm, run:
+   ```bash
+   python3 /var/mobile/genshin_slimmer.py
+   ```
+3. An interactive menu lets you scan, stub Boy/Girl cutscenes or all cutscenes, clean UGC cache, view revisions, and sync or restore manifests.

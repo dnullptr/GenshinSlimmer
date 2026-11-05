@@ -1,5 +1,5 @@
 <#
-    GenshinSlimmer v12
+    GenshinSlimmer v13
     - Stubs cutscene videos and audio cache to 0KB to save 30-40+ GB of disk space.
     - Manifest Synchronization Engine: Directly synchronizes Genshin's internal
       asset databases (res_versions_persist + audio/silence/data persist variants)
@@ -9,6 +9,12 @@
       ef46db3751d8e999, same as base_revision), matches remoteName by filename
       suffix (handles VideoAssets/ prefix changes), and scans ALL *versions*persist*
       manifests (res + audio) instead of only res_versions_persist.
+    - v13 (EXPERIMENTAL, opt-in [P]): registers 0KB stubs in the launcher's pkg_version too, and reverts them
+      on Unlock/Restore, to try to stop HoYoPlay launcher repair/verify from re-downloading stubs.
+    - Verified against 7.2: all 280 cutscene videos match a pattern (new 7.2 AQ70xx / Reunion_72 included).
+    - QoL (community contribution): Prologue "Cs_102*" cutscenes (Mondstadt) and "*Backstory*" cutscenes (Misc).
+    - Manifest backups (.bak) are now refreshed whenever the live manifest is pristine, so they never go stale
+      across major updates (a stale .bak from an older version could otherwise downgrade a manifest on restore).
     - Eliminates restrictive ACL Deny locks (which caused Error -9908 and download loops).
     - Revision Manager: View and sync R/S/D revisions (res_revision, silence_revision, data_revision).
     - Supports all regions: Mondstadt, Liyue, Inazuma, Sumeru, Fontaine, Natlan, Nod-Krai, Snezhnaya (ZhìDōng / AQ70 / AQ71 - 7.1).
@@ -52,7 +58,7 @@ $UGCSearchPaths = @(
 function Get-GamePath {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v12" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v13" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host ""
@@ -263,9 +269,12 @@ function Sync-Manifest {
             }
         }
 
-        # Backup original manifest once
+        # Backup the pristine manifest. A manifest without any empty-file md5 has not been patched by us
+        # yet (fresh install / fresh major update), so (re)create the backup from it. If it is already
+        # patched, keep the existing backup instead of overwriting a good copy with a patched one.
         $backupPath = "$persistPath.bak"
-        if (-not (Test-Path $backupPath)) {
+        $isPristine = -not ($lines | Select-String -SimpleMatch $emptyMd5 -Quiet)
+        if ($isPristine -or -not (Test-Path $backupPath)) {
             try { Copy-Item -LiteralPath $persistPath -Destination $backupPath -Force } catch {}
         }
 
@@ -394,6 +403,176 @@ function Restore-Manifest {
         $totalRestored += $restoredCount
     }
     return $totalRestored
+}
+
+# --- LAUNCHER pkg_version SYNC (EXPERIMENTAL, v13) ---
+# The HoYoPlay launcher verifies game files against "pkg_version" in the game root (real md5/size per
+# file), NOT against the in-game manifests. This registers 0KB stubs there as valid empty files the same
+# way Sync-Manifest does for res_versions_persist. Opt-in ([P]) and always reversible (pkg_version.bak).
+function Sync-PkgVersion {
+    param ([switch]$Silent)
+
+    $CurrentLocation = (Get-Location).ProviderPath
+    $pkgPath = Join-Path $CurrentLocation "pkg_version"
+    if (-not (Test-Path -LiteralPath $pkgPath)) {
+        if (-not $Silent) { Write-Host "`nCould not find 'pkg_version' in the game folder:`n$pkgPath" -ForegroundColor Yellow }
+        return 0
+    }
+
+    $emptyMd5 = "d41d8cd98f00b204e9800998ecf8427e"
+    $emptyHash = "ef46db3751d8e999"
+
+    # Exact relative paths (as written in pkg_version) of every 0KB stub. pkg_version only lists
+    # StreamingAssets files, so Persistent stubs naturally never match.
+    $stubbed = @{}
+    foreach ($rel in ($VideoSearchPaths + $UGCSearchPaths)) {
+        $fullPath = Join-Path $CurrentLocation $rel
+        if (-not (Test-Path $fullPath)) { continue }
+        $zeroFiles = Get-ChildItem -Path $fullPath -File -ErrorAction SilentlyContinue | Where-Object { $_.Length -eq 0 }
+        foreach ($f in $zeroFiles) {
+            $cleanName = if ($f.Name -like "*.bak") { $f.Name.Substring(0, $f.Name.Length - 4) } else { $f.Name }
+            $stubbed[(($rel -replace '\\', '/') + "/" + $cleanName).ToLower()] = $true
+        }
+    }
+
+    $lines = Get-Content -LiteralPath $pkgPath -Encoding utf8
+
+    # Keep a pristine backup (refresh it whenever the file is unpatched, e.g. after a launcher update)
+    $backupPath = "$pkgPath.bak"
+    $isPristine = -not ($lines | Select-String -SimpleMatch $emptyMd5 -Quiet)
+    if ($isPristine -or -not (Test-Path $backupPath)) {
+        try { Copy-Item -LiteralPath $pkgPath -Destination $backupPath -Force } catch {}
+    }
+
+    $output = [System.Collections.Generic.List[string]]::new($lines.Count)
+    $patched = 0
+    foreach ($line in $lines) {
+        $done = $false
+        if ($line -match '"remoteName":\s*"([^"]+)"') {
+            if ($stubbed.ContainsKey($matches[1].ToLower())) {
+                $newLine = $line -replace '"fileSize":\s*\d+', '"fileSize": 0' `
+                                 -replace '"md5":\s*"[^"]+"', "`"md5`": `"$emptyMd5`""
+                if ($newLine -match '"hash":') {
+                    $newLine = $newLine -replace '"hash":\s*"[^"]+"', "`"hash`": `"$emptyHash`""
+                }
+                $output.Add($newLine)
+                $patched++
+                $done = $true
+            }
+        }
+        if (-not $done) { $output.Add($line) }
+    }
+
+    Remove-FileLock -Path $pkgPath
+    try {
+        [System.IO.File]::WriteAllLines($pkgPath, $output, [System.Text.UTF8Encoding]::new($false))
+    } catch {
+        Write-Host "`nError writing pkg_version (is the launcher running?): $_" -ForegroundColor Red
+        return 0
+    }
+    return $patched
+}
+
+function Restore-PkgVersion {
+    # Reverts patched pkg_version entries from pkg_version.bak (line-level, matched by remoteName).
+    # Empty $FileNamesToRestore = revert every patched entry. Entries that are not patched (e.g. the
+    # launcher already rewrote pkg_version for a new version) are never touched, so a stale .bak is safe.
+    param ([array]$FileNamesToRestore)
+
+    $CurrentLocation = (Get-Location).ProviderPath
+    $pkgPath = Join-Path $CurrentLocation "pkg_version"
+    $backupPath = "$pkgPath.bak"
+    if (-not (Test-Path -LiteralPath $pkgPath) -or -not (Test-Path -LiteralPath $backupPath)) { return 0 }
+
+    $emptyMd5 = "d41d8cd98f00b204e9800998ecf8427e"
+
+    $restoreNames = @{}
+    foreach ($fn in $FileNamesToRestore) {
+        $cleanName = if ($fn -like "*.bak") { $fn.Substring(0, $fn.Length - 4) } else { $fn }
+        $restoreNames[$cleanName.ToLower()] = $true
+    }
+
+    $bakLookup = @{}
+    foreach ($line in (Get-Content -LiteralPath $backupPath -Encoding utf8)) {
+        if ($line -match '"remoteName":\s*"([^"]+)"') { $bakLookup[$matches[1].ToLower()] = $line }
+    }
+
+    $lines = Get-Content -LiteralPath $pkgPath -Encoding utf8
+    $output = [System.Collections.Generic.List[string]]::new($lines.Count)
+    $restored = 0
+    foreach ($line in $lines) {
+        $done = $false
+        if ($line -like "*$emptyMd5*" -and $line -match '"remoteName":\s*"([^"]+)"') {
+            $key = $matches[1].ToLower()
+            $fileName = $key.Split('/')[-1]
+            if ($bakLookup.ContainsKey($key) -and $bakLookup[$key] -notlike "*$emptyMd5*" -and
+                ($restoreNames.Count -eq 0 -or $restoreNames.ContainsKey($fileName))) {
+                $output.Add($bakLookup[$key])
+                $restored++
+                $done = $true
+            }
+        }
+        if (-not $done) { $output.Add($line) }
+    }
+
+    if ($restored -gt 0) {
+        Remove-FileLock -Path $pkgPath
+        try {
+            [System.IO.File]::WriteAllLines($pkgPath, $output, [System.Text.UTF8Encoding]::new($false))
+        } catch {
+            Write-Host "`nError writing pkg_version (is the launcher running?): $_" -ForegroundColor Red
+            return 0
+        }
+    }
+    return $restored
+}
+
+function Process-PkgVersion {
+    $CurrentLocation = (Get-Location).ProviderPath
+    $pkgPath = Join-Path $CurrentLocation "pkg_version"
+    $emptyMd5 = "d41d8cd98f00b204e9800998ecf8427e"
+
+    Clear-Host
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host "   Launcher pkg_version Sync (EXPERIMENTAL)" -ForegroundColor Yellow
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host "File: $pkgPath" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "The HoYoPlay launcher checks your game files against 'pkg_version' (not the in-game" -ForegroundColor Gray
+    Write-Host "manifests). Registering your 0KB stubs there may stop the launcher's repair/verify" -ForegroundColor Gray
+    Write-Host "from re-downloading them." -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "NOTE: It is not known whether the launcher trusts this local file or fetches a fresh" -ForegroundColor Yellow
+    Write-Host "copy from the server during an update. A game update/repair rewrites it, so run this" -ForegroundColor Yellow
+    Write-Host "again afterwards. A backup (pkg_version.bak) is kept and [2] reverts everything." -ForegroundColor Yellow
+    Write-Host ""
+
+    if (-not (Test-Path -LiteralPath $pkgPath)) {
+        Write-Host "pkg_version not found in the game folder." -ForegroundColor Red
+        Read-Host "`nPress Enter to return to menu..."
+        return
+    }
+
+    $patchedNow = @(Get-Content -LiteralPath $pkgPath -Encoding utf8 | Select-String -SimpleMatch $emptyMd5).Count
+    Write-Host "Entries currently registered as 0KB in pkg_version: $patchedNow" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Options:"
+    Write-Host " [1] Sync - register current 0KB stubs in pkg_version"
+    Write-Host " [2] Revert - restore all patched entries from pkg_version.bak"
+    Write-Host " [3] Return to Menu"
+
+    $choice = Read-Host "`nEnter Choice"
+    if ($choice -eq '1') {
+        $n = Sync-PkgVersion
+        Write-Host "`nRegistered $n stubbed assets in pkg_version." -ForegroundColor Green
+        if ($n -eq 0) { Write-Host "No stubbed (0KB) files found. Stub files first, then sync." -ForegroundColor Yellow }
+        Read-Host "`nPress Enter to return to menu..."
+    }
+    elseif ($choice -eq '2') {
+        $n = Restore-PkgVersion
+        Write-Host "`nReverted $n pkg_version entries." -ForegroundColor Green
+        Read-Host "`nPress Enter to return to menu..."
+    }
 }
 
 # --- DEFINE PATTERNS ---
@@ -538,6 +717,8 @@ function Process-Stubbing {
             if ($deletedNames.Count -gt 0) {
                 $restored = Restore-Manifest -FileNamesToRestore $deletedNames
                 Write-Host "`nRestored $restored manifest entries in res_versions_persist." -ForegroundColor Green
+                $pkgRestored = Restore-PkgVersion -FileNamesToRestore $deletedNames
+                if ($pkgRestored -gt 0) { Write-Host "Restored $pkgRestored launcher pkg_version entries." -ForegroundColor Green }
             }
             Write-Host "Done. The game will redownload these files on next launch." -ForegroundColor Yellow
             Read-Host "Press Enter to continue..."
@@ -638,6 +819,8 @@ function Process-UnlockOnly {
         if ($deletedNames.Count -gt 0) {
             $restored = Restore-Manifest -FileNamesToRestore $deletedNames
             Write-Host "`nRestored $restored entries in res_versions_persist." -ForegroundColor Green
+            $pkgRestored = Restore-PkgVersion -FileNamesToRestore $deletedNames
+            if ($pkgRestored -gt 0) { Write-Host "Restored $pkgRestored launcher pkg_version entries." -ForegroundColor Green }
         }
         Write-Host "Done. The game will redownload these files naturally on next launch." -ForegroundColor Yellow
         Read-Host "`nPress Enter to return to menu..."
@@ -789,9 +972,9 @@ Get-GamePath
 do {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v12" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v13" -ForegroundColor Yellow
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "Mode: Manifest-Sync Engine + Persistent Support (7.1 fixed)" -ForegroundColor DarkGray
+    Write-Host "Mode: Manifest-Sync Engine + Persistent Support (7.x verified)" -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "Select content to stub:"
     Write-Host " 1. Mondstadt"
@@ -801,8 +984,8 @@ do {
     Write-Host " 5. Fontaine"
     Write-Host " 6. Natlan"
     Write-Host " 7. Nod-Krai"
-    Write-Host " 8. Snezhnaya (ZhìDōng / 7.0-7.1) " -NoNewline
-    Write-Host "[WARNING: FINISH 7.x AQ First!]" -ForegroundColor Red
+    Write-Host " 8. Snezhnaya (ZhìDōng / 7.0-7.2) " -NoNewline
+    Write-Host "[WARNING: FINISH 7.2 AQ First!]" -ForegroundColor Red
     Write-Host " 9. Expired Events & Misc Cutscenes"
     Write-Host "10. UGC Cache (BeyondUGC)"
     Write-Host "11. Stub 'Boy' Traveler Videos Only" -ForegroundColor Cyan
@@ -811,6 +994,7 @@ do {
     Write-Host " S. Scan & Analyze Game Folder" -ForegroundColor Yellow
     Write-Host " M. Sync Manifest (Fix In-Game Patcher / Stop Minor Update Redownloads)" -ForegroundColor Green
     Write-Host " R. View / Update In-Game Revisions (R / S / D)" -ForegroundColor Cyan
+    Write-Host " P. Sync Launcher pkg_version (EXPERIMENTAL - try to stop launcher repair re-downloads)" -ForegroundColor Magenta
     Write-Host " U. UNLOCK / Restore Files & Clean Legacy ACLs" -ForegroundColor Yellow
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     Write-Host " B. STUB ALL + BOY (Regions + Events + UGC + Boy)" -ForegroundColor Cyan
@@ -837,6 +1021,9 @@ do {
 
         'R' { Process-RevisionManager; continue }
         'r' { Process-RevisionManager; continue }
+
+        'P' { Process-PkgVersion; continue }
+        'p' { Process-PkgVersion; continue }
 
         '1'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsMondstadt; $desc = "Mondstadt" }
         '2'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsLiyue; $desc = "Liyue" }
