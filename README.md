@@ -7,7 +7,8 @@ GenshinSlimmer is a utility that helps reclaim disk space by safely replacing pr
 
 - **Current script version: v13**
 
-### What's new in v13 (2026 Nov) - 7.2 Support, Split Snezhnaya Options & Launcher pkg_version Sync
+### What's new in v13 (2026 Nov) - 7.2 Support, Modern Dark GUI, Split Snezhnaya Options & Launcher pkg_version Sync
+- **New Modern Dark GUI (`GenshinSlimmer_GUI.ps1`):** A full WPF dark-themed graphical interface alongside the classic CLI script (`GenshinSlimmer.ps1`). Includes live category cards with file counts and size badges, one-click 7.2-safe presets (`Up to 7.1 + Boy`, `Up to 7.1 + Girl`, `Up to 7.1 (No Gender)`), live Manifest & Launcher `pkg_version` sync counters, an inline Revision (`R`) editor, Unlock/Restore controls, LZX compression launcher, and an activity log. Shares `path.ini` with the CLI.
 - **Split Snezhnaya Options (`[8]` for 7.0–7.1 & `[8b]` for 7.2):**
   - **`[8]` Snezhnaya 7.0–7.1 (Up to 7.1 AQ — 3.93 GB):** Stubs all 17 Snezhnaya cutscenes from 7.0 and 7.1 (`AQ7008` through `AQ7020`) while keeping all 7.2 Archon Quest cutscenes intact.
   - **`[8b]` Snezhnaya 7.2 (7.2 AQ — 0.49 GB):** Dedicated option for the 5 new 7.2 Archon Quest cutscenes (`AQ7023`, `AQ7025`, `AQ7031`) once you have finished 7.2.
@@ -52,6 +53,7 @@ If you skip step 1 it still works. The launcher just repairs the stubs during th
 - **Safe ACL Stripping (`[U]`):** Option to strip legacy `Deny Write, Delete` permissions left over from older versions, preventing `Download error -9908` and startup deadlocks.
 
 ### Features
+- **Dual Interface (GUI & CLI):** Run `GenshinSlimmer_GUI.ps1` for a modern dark-themed WPF dashboard, or `GenshinSlimmer.ps1` for the classic interactive terminal menu.
 - **Universal path finder:** Locates cutscene/video folders automatically given the "Genshin Impact game" folder.
 - **Config Persistence:** Saves game path to `path.ini`.
 - **Space calculator & Scan Mode:** Reports total space to be reclaimed (MB / GB) and status per region (`[S]`).
@@ -66,6 +68,3 @@ If you skip step 1 it still works. The launcher just repairs the stubs during th
 - **Global:** Unused Gender Videos (Aether/Lumine variants)
 
 ---
-
-### v13 Screenshot
-<img width="1218" height="931" alt="image" src="https://github.com/user-attachments/assets/b2057c49-03dd-4177-b315-e30c90e62bb2" />
