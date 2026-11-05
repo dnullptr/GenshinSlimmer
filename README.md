@@ -67,22 +67,5 @@ If you skip step 1 it still works. The launcher just repairs the stubs during th
 
 ---
 
-### iOS Edition (Jailbroken Devices)
-
-GenshinSlimmer supports jailbroken iOS devices (e.g. Dopamine rootless / Palera1n) to reclaim phone storage by stubbing cutscene videos (`.usm`) and UGC audio cache (`BeyondUGC`) and synchronizing mobile `*versions*persist*` manifests.
-
-#### Method 1: Remote via PC (iOS MCP)
-If your iPhone runs the `ios-mcp` server:
-1. Run `GenshinSlimmer_iOS.ps1` in PowerShell:
-   ```powershell
-   .\GenshinSlimmer_iOS.ps1
-   ```
-2. The script connects to your iPhone over Wi-Fi, deploys the tool, and provides a menu to scan, stub videos, and sync manifests without touching your phone.
-
-#### Method 2: On-Device (SSH / NewTerm / Filza)
-1. Copy [genshin_slimmer_ios.py](file:///c:/Users/Daniel/Downloads/genshin_slimmer/genshin_slimmer_ios.py) to `/var/mobile/genshin_slimmer.py` on your iPhone.
-2. In SSH or NewTerm, run:
-   ```bash
-   python3 /var/mobile/genshin_slimmer.py
-   ```
-3. An interactive menu lets you scan, stub Boy/Girl cutscenes or all cutscenes, clean UGC cache, view revisions, and sync or restore manifests.
+### v13 Screenshot
+<img width="1218" height="931" alt="image" src="https://github.com/user-attachments/assets/b2057c49-03dd-4177-b315-e30c90e62bb2" />
