@@ -2,10 +2,6 @@
 <p align="center"><img width="256" height="512" alt="fin" src="https://github.com/user-attachments/assets/9813ea66-741a-4f85-ad19-5c33f72a46ff" /></p>
 GenshinSlimmer is a utility that helps reclaim disk space by safely replacing pre-rendered cutscene videos, unused audio cache, and duplicate gendered assets with empty "stubs" in Genshin Impact.
 
-This repository contains:
-- `GenshinSlimmer.ps1`: Windows PowerShell edition.
-- `GenshinSlimmer_iOS.ps1`: Remote PC runner for jailbroken iOS over Wi-Fi via `ios-mcp`.
-- `genshin_slimmer_ios.py`: Native iOS edition (Python 3) for on-device terminal (SSH / NewTerm / Filza).
 
 ### Version
 
@@ -16,14 +12,14 @@ This repository contains:
 - **Verified on 7.2:** All 280 cutscene videos shipped in 7.2 (including the new `Cs_ZD_AQ70xx` Snezhnaya chapters and `Video_Reunion_72`) are covered by the existing patterns, and the manifest format (`remoteName` / `md5` / `hash` / `fileSize`) and the empty-file hash are unchanged.
 - **QoL (community contribution):** Added the Prologue `Cs_102*` cutscenes (Mondstadt category) and `*Backstory*` cutscenes (Events & Misc category).
 - **Backups no longer go stale:** `res_versions_persist.bak` (and the other manifest `.bak` files) are now refreshed whenever the live manifest is pristine, instead of being created only once. Previously the backup could stay at an older game version across a major update.
-- **iOS Edition v13:** Same pattern additions and backup fix, and stub detection now only treats files of exactly 0 bytes as stubs (tiny real files such as `.cuepoint` are never registered as stubs).
+
 
 ### What's new in v12 (2026 Oct 30) - 7.1 Compatibility & Multi-Manifest Engine
 - **7.1 Strict Hash Verification Fix:** Patches the `"hash"` field (`ef46db3751d8e999`, 0-byte hash) alongside `"fileSize": 0` and `"md5": "d41d8cd98f00b204e9800998ecf8427e"`, bypassing 7.1's strict hash integrity checks that triggered re-downloads.
 - **Path-Robust Suffix Matching:** Matches `remoteName` entries by filename suffix, gracefully handling `VideoAssets/` and platform prefix variations introduced in 7.1.
 - **Multi-Manifest Discovery:** Automatically locates and synchronizes all `*versions*persist*` and `audio_versions*` manifests across `Persistent` data.
 - **Snezhnaya 7.1 Cutscenes:** Added coverage for 7.1 cutscenes (`*ZD71*`, `*AQ71*`, `*LQ17*`, `*Snezhnaya*`).
-- **iOS Edition v12:** Ported the full v12 Manifest Sync Engine, individual region selections (1-10), UGC BeyondUGC audio cache stubbing, and In-Game Revision Manager to iOS.
+
 
 ### Major updates & the HoYoPlay launcher (read before a big patch)
 
