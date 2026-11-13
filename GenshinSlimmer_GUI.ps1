@@ -171,6 +171,10 @@ function Sync-ManifestEngine {
     $manifestPaths = @(Get-ManifestCandidates -GameRoot $GameRoot)
     if ($manifestPaths.Count -eq 0) { return 0 }
 
+    $persistentDir = Join-Path $GameRoot "GenshinImpact_Data\Persistent"
+    Remove-Item -Path (Join-Path $persistentDir "VideoAssets") -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path (Join-Path $persistentDir "*versions_remote*") -Force -ErrorAction SilentlyContinue
+
     $maps = Get-StubbedFileMap -GameRoot $GameRoot
     $stubbedMap   = $maps.Exact
     $stubbedNames = $maps.Names
@@ -908,6 +912,7 @@ $BtnSaveRevision.Add_Click({
     }
     try {
         $newR | Out-File -FilePath $resRevFile -Encoding ascii -Force -NoNewline
+        $newR | Out-File -FilePath (Join-Path $gameRoot "GenshinImpact_Data/Persistent/res_revision_eternal") -Encoding ascii -Force -NoNewline
         Write-GuiLog "Updated res_revision to R$newR."
         Refresh-GameScan
     } catch {
