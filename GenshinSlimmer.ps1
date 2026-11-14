@@ -213,6 +213,9 @@ function Sync-Manifest {
     $CurrentLocation = (Get-Location).ProviderPath
     $manifestPaths = @(Get-ManifestCandidates -GameRoot $CurrentLocation)
 
+    Remove-Item -Path (Join-Path $CurrentLocation "GenshinImpact_Data\Persistent\VideoAssets") -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path (Join-Path $CurrentLocation "GenshinImpact_Data\Persistent\*versions_remote*") -Force -ErrorAction SilentlyContinue
+
     if (-not $manifestPaths -or $manifestPaths.Count -eq 0) {
         $persistPath = Join-Path $CurrentLocation "GenshinImpact_Data\Persistent\res_versions_persist"
         if (-not $Silent) {
@@ -888,6 +891,7 @@ function Process-RevisionManager {
         if ($newR -match '^\d+$') {
             try {
                 $newR | Out-File -FilePath $resRevFile -Encoding ascii -Force -NoNewline
+                $newR | Out-File -FilePath (Join-Path $persistentDir "res_revision_eternal") -Encoding ascii -Force -NoNewline
                 Write-Host "`nSuccessfully updated res_revision to: $newR" -ForegroundColor Green
                 Write-Host "The game will now consider resource revision $newR already installed." -ForegroundColor Cyan
             } catch {
