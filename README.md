@@ -5,10 +5,16 @@ GenshinSlimmer is a utility that helps reclaim disk space by safely replacing pr
 
 ### Version
 
-- **Current script version: v13**
+- **Current script version: v14**
+
+### What's new in v14 (2026 Nov) - Live Server Revision Auto-Fetch, Silent Update Recovery, Modern Dark GUI & Split 7.2 Options
+- **Live Server Revision Auto-Fetch (`[R]` -> `[1]` in CLI / `Auto-Fetch R` in GUI):** Queries HoYoverse's live regional dispatch server (`query_cur_region`) directly **before you even launch the game**, decrypts the gateway protobuf in pure PowerShell, and automatically retrieves the newest server `res_revision` (e.g., `49411577`), `silence_revision`, and `data_revision`. No more guessing or manually hunting for the new `R`-number when a silent manifest update drops!
+- **Silent Manifest Update Recovery & `res_revision_eternal` Sync (PR #20 by @DarRahman):**
+  - Synchronizes **both** `res_revision` and `res_revision_eternal` inside `GenshinImpact_Data\Persistent`.
+  - Automatically deletes partial in-progress download queues (`GenshinImpact_Data\Persistent\VideoAssets\*.tmp`) and unpatched server manifests (`*versions_remote*`) during Manifest Sync (`[M]`). Even if the game already started trying to re-download 40–50 GB of cutscenes at the login door, you can simply close the game, click **`Auto-Fetch R`** (or run `[R]` -> `[1]`), and relaunch — the game will skip the 45 GB video redownload and only download the small ~400 MB gameplay delta it actually needs.
 
 ### What's new in v13 (2026 Nov) - 7.2 Support, Modern Dark GUI, Split Snezhnaya Options & Launcher pkg_version Sync
-- **New Modern Dark GUI (`GenshinSlimmer_GUI.ps1`):** A full WPF dark-themed graphical interface alongside the classic CLI script (`GenshinSlimmer.ps1`). Includes live category cards with file counts and size badges, one-click 7.2-safe presets (`Up to 7.1 + Boy`, `Up to 7.1 + Girl`, `Up to 7.1 (No Gender)`), live Manifest & Launcher `pkg_version` sync counters, an inline Revision (`R`) editor, Unlock/Restore controls, LZX compression launcher, and an activity log. Shares `path.ini` with the CLI.
+- **New Modern Dark GUI (`GenshinSlimmer_GUI.ps1`):** A full WPF dark-themed graphical interface alongside the classic CLI script (`GenshinSlimmer.ps1`). Includes live category cards with file counts and size badges, one-click 7.2-safe presets (`Up to 7.1 + Boy`, `Up to 7.1 + Girl`, `Up to 7.1 (No Gender)`), live Manifest & Launcher `pkg_version` sync counters, an inline Revision (`R`) editor with 1-click **`Auto-Fetch R`**, Unlock/Restore controls, LZX compression launcher, and an activity log. Shares `path.ini` with the CLI.
 - **Split Snezhnaya Options (`[8]` for 7.0–7.1 & `[8b]` for 7.2):**
   - **`[8]` Snezhnaya 7.0–7.1 (Up to 7.1 AQ — 3.93 GB):** Stubs all 17 Snezhnaya cutscenes from 7.0 and 7.1 (`AQ7008` through `AQ7020`) while keeping all 7.2 Archon Quest cutscenes intact.
   - **`[8b]` Snezhnaya 7.2 (7.2 AQ — 0.49 GB):** Dedicated option for the 5 new 7.2 Archon Quest cutscenes (`AQ7023`, `AQ7025`, `AQ7031`) once you have finished 7.2.
@@ -71,4 +77,3 @@ If you skip step 1 it still works. The launcher just repairs the stubs during th
 ### Screenshots from v13 (Both GUI and Terminal script)
 <img width="1020" height="999" alt="image" src="https://github.com/user-attachments/assets/56c1cc01-2226-4939-91ff-022c06654f66" />
 <img width="1218" height="931" alt="image" src="https://github.com/user-attachments/assets/10151893-683f-4237-9f70-4ea2a3895984" />
-

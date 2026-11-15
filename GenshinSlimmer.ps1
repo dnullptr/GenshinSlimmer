@@ -1,10 +1,14 @@
-<#
-    GenshinSlimmer v13
+﻿<#
+    GenshinSlimmer v14
     - Stubs cutscene videos and audio cache to 0KB to save 30-40+ GB of disk space.
     - Manifest Synchronization Engine: Directly synchronizes Genshin's internal
       asset databases (res_versions_persist + audio/silence/data persist variants)
       so the in-game patcher validates 0KB stubs as 100% intact, stopping
       minor update re-downloads (fixed for 7.1 strict hash validation).
+    - v14: Live Server Revision Auto-Fetch (queries HoYoverse query_cur_region directly
+      before launching the game to retrieve the newest res_revision / silence_revision / data_revision)
+      + Silent Manifest Update Recovery (PR #20 by DarRahman: syncs res_revision_eternal and clears
+      Persistent\VideoAssets partial .tmp downloads and *versions_remote* files).
     - v12 fix for 7.1: also patches the "hash" field (empty-file hash
       ef46db3751d8e999, same as base_revision), matches remoteName by filename
       suffix (handles VideoAssets/ prefix changes), and scans ALL *versions*persist*
@@ -16,7 +20,7 @@
     - Manifest backups (.bak) are now refreshed whenever the live manifest is pristine, so they never go stale
       across major updates (a stale .bak from an older version could otherwise downgrade a manifest on restore).
     - Eliminates restrictive ACL Deny locks (which caused Error -9908 and download loops).
-    - Revision Manager: View and sync R/S/D revisions (res_revision, silence_revision, data_revision).
+    - Revision Manager: View, auto-fetch from live server, and sync R/S/D revisions (res_revision, res_revision_eternal, silence_revision, data_revision).
     - Supports all regions: Mondstadt, Liyue, Inazuma, Sumeru, Fontaine, Natlan, Nod-Krai,
       Snezhnaya 7.0-7.1 (option 8, included in STUB ALL) and Snezhnaya 7.2 (option 8b, kept separate
       so players can stub everything up to 7.1 before finishing the 7.2 Archon Quest).
@@ -60,7 +64,7 @@ $UGCSearchPaths = @(
 function Get-GamePath {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v13" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v14" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host ""
@@ -839,6 +843,153 @@ function Process-UnlockOnly {
     }
 }
 
+function Read-ProtoVarint {
+    param ([byte[]]$Buffer, [ref]$Pos)
+    [uint64]$result = 0
+    $shift = 0
+    while ($Pos.Value -lt $Buffer.Length) {
+        $b = $Buffer[$Pos.Value]
+        $Pos.Value++
+        $result = $result -bor ([uint64]($b -band 0x7F) -shl $shift)
+        if (($b -band 0x80) -eq 0) { return $result }
+        $shift += 7
+    }
+    return $result
+}
+
+function Parse-ProtoFields {
+    param ([byte[]]$Buffer)
+    $pos = 0
+    $fields = @{}
+    while ($pos -lt $Buffer.Length) {
+        $tag = Read-ProtoVarint -Buffer $Buffer -Pos ([ref]$pos)
+        $fieldNum = [int]($tag -shr 3)
+        $wireType = [int]($tag -band 7)
+        if ($wireType -eq 0) {
+            $fields[$fieldNum] = Read-ProtoVarint -Buffer $Buffer -Pos ([ref]$pos)
+        } elseif ($wireType -eq 2) {
+            $len = [int](Read-ProtoVarint -Buffer $Buffer -Pos ([ref]$pos))
+            if ($len -le 0 -or ($pos + $len) -gt $Buffer.Length) { break }
+            $fields[$fieldNum] = $Buffer[$pos..($pos + $len - 1)]
+            $pos += $len
+        } elseif ($wireType -eq 5) {
+            $pos += 4
+        } elseif ($wireType -eq 1) {
+            $pos += 8
+        } else {
+            break
+        }
+    }
+    return $fields
+}
+
+function Get-LiveServerRevisions {
+    param ([string]$GameRoot)
+    $persistentDir = Join-Path $GameRoot "GenshinImpact_Data\Persistent"
+    $channelFile   = Join-Path $persistentDir "ChannelName"
+    $scriptRevFile = Join-Path $persistentDir "ScriptVersion"
+    $configIniPath = Join-Path $GameRoot "config.ini"
+
+    $channel = if (Test-Path $channelFile) { (Get-Content $channelFile -Raw).Trim() } else { "OSRELWin" }
+    $scriptVer = if (Test-Path $scriptRevFile) { (Get-Content $scriptRevFile -Raw).Trim() } else { "" }
+    if (-not $scriptVer -and (Test-Path $configIniPath)) {
+        $iniMatch = Select-String -Path $configIniPath -Pattern '^\s*game_version\s*=\s*([0-9.]+)' | Select-Object -First 1
+        if ($iniMatch) { $scriptVer = $iniMatch.Matches[0].Groups[1].Value.Trim() }
+    }
+    if (-not $scriptVer) { $scriptVer = "7.2.0" }
+
+    # 2048-bit RSA Private Key for Genshin query_cur_region (key_id=5)
+    $dispatchRsaXml = '<RSAKeyValue><Modulus>sJbFp3WcsiojjdQtVnTuvtawL2m4XxK93F6lCnFwcZqUP39txFGGlrogHMqreyawIUN7E5shtwGzigzjW8Ly5CryBJpXP3ehNTqJS7emb+9LlC19Oxa1eQuUQnatgcsd16DPH7kJ5JzN3vXnhvUyk4Qficdmm0uk7FRaNYFi7EJs4xyqFTrp3rDZ0dzBHumlIeK1om7FNt6Nyivgp+UybO7kl0NLFEeSlV4S+7ofitWQsO5xYqKAzSzz+KIRQcxJidGBlZ1JN/g5DPDpx/ztvOWYUlM7TYk6xN3focZpU0kBzAw/rn94yW9z8jpXfzk+MvWzVL/HAcPy4ySwkay0Nw==</Modulus><Exponent>AQAB</Exponent><P>19wQUISXtpnmCrEZfbyZ6IwOy8ZCVaVUtbTjVa8UyfNglzzJG3yzcXU3X35v5/HNCHaXbG2qcbQLThnHBA+obW3RDo+Q49V84Zh1fUNH0ONHHuC09kB//gHqzn/4nLf1aJ2O0NrMyrZNsZ0ZKUKQuVCqWjBOmTNUitcc8RpXZ8s=</P><Q>0W09POM/It7RoVGI+cfbbgSRmzFo9kzSp5lP7iZ81bnvUMabu2nv3OeGc3Pmdh1ZJFRw6iDM6VVbG0uz8g+f8+JT32XdqM7MJAmgfcYfTVBMiVnh330WNkeRrGWqQzB2f2Wr+0vJjU8CAAcOWDh0oNguJ1l1TSyKxqdL8FsA38U=</Q><DP>udt1AJ7psgOYmqQZ+rUlH6FYLAQsoWmVIk75XpE9KRUwmYdw8QXRy2LNpp9K4z7C9wKFJorWMsh+42Q2gzyoHHBtjEf4zPLIb8XBg3UmpKjMV73Kkiy/B4nHDr4I5YdO+iCPEy0RH4kQJFnLjEcQLT9TLgxh4G7d4B2PgdjYYTk=</DP><DQ>rdgiV2LETCvulBzcuYufqOn9/He9i4cl7p4jbathQQFBmSnkqGQ+Cn/eagQxsKaYEsJNoOxtbNu/7x6eVzeFLawYt38Vy0UuzFN5eC54WXNotTN5fk2VnKU4VYVnGrMmCobZhpbYzoZhQKiazby/g60wUtW9u7xXzqOdM/428Yk=</DQ><InverseQ>cGxDsdUW6B/B/nz9QgIhfnKrauCa8/SEVjzoHA6bdlLJNaw8Hlq2cW00ZcCGlXOXLCBBNl9Nn7rf00169TKFx2urNnEK52WKuOOPPDbDuEwAtuoarP8fx21TnF9d4E9ukmJ4ABx3oe8Y1ia/yoCCML3L4L6FbOpbu2vGi1L6zmo=</InverseQ><D>PMpalrBtVgQdoziUtvugKMA9fMT3PHt2MsO+Kx8sJ1+gg0952Sh7na3LWj4G1GlYHstdNj2kWJzUUsTnC/LLrPJ/yEfdmzKyo2FYXGGHgWcubH9QaiQCKv5qdormZhUnW9C3HOOVXUcBtCyRHKuSUqgcN1EWqIVc7CKJv3ugM1aEP5HF/IbDAmfKdllJd0tstKLP9AdA2v/5R+QpEFrG3QJ9TuY4tnGjLp80DEd0FwEk8cLKH5oO8RuLHudKdxJTwm7/jxgnwOuCVtmxcJigDlTPw0wO5oQyCg1YIVBWgRxGQRShofsGVZ3dRQVE+cNnUHgGaStWhETxrnzc6pLBqQ==</D></RSAKeyValue>'
+
+    # Known ProtoDispatchKey seeds + dynamic fetch fallback for future 7.x versions
+    $knownSeeds = @{
+        "7.2.0" = "018bc9560abc707f"
+        "7.0.0" = "d9f572e5464f160f"
+    }
+    $seedList = [System.Collections.Generic.List[string]]::new()
+    if ($knownSeeds.ContainsKey($scriptVer)) { $seedList.Add($knownSeeds[$scriptVer]) }
+    $seedList.Add("018bc9560abc707f")
+
+    # If on a newer version not in $knownSeeds, try pulling latest ProtoDispatchKey from CollapseLauncher metadata
+    if (-not $knownSeeds.ContainsKey($scriptVer)) {
+        try {
+            $pwshCmd = Get-Command pwsh -ErrorAction SilentlyContinue
+            if ($pwshCmd) {
+                $fetchCmd = '$m=Invoke-RestMethod "https://raw.githubusercontent.com/CollapseLauncher/CollapseLauncher-ReleaseRepo/main/metadata/v3/stable/config_master.json"; $rsa=[System.Security.Cryptography.RSA]::Create(); $rsa.FromXmlString([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($m.Key))); $b=Invoke-WebRequest "https://raw.githubusercontent.com/CollapseLauncher/CollapseLauncher-ReleaseRepo/main/metadata/v3/stable/config_GIGlb.json" -UseBasicParsing; $dec=$rsa.Decrypt($b.Content[0..($m.BitSize-1)],[Security.Cryptography.RSAEncryptionPadding]::Pkcs1); $ms=[IO.MemoryStream]::new(); $ms.Write($dec,0,$dec.Length); $ms.Write($b.Content,$m.BitSize,$b.Content.Length-$m.BitSize); $ms.Position=0; $br=[IO.Compression.BrotliStream]::new($ms,[IO.Compression.CompressionMode]::Decompress); $sr=[IO.StreamReader]::new($br); if($sr.ReadToEnd() -match "\"ProtoDispatchKey\"\s*:\s*\"([^\"]+)\""){$matches[1]}'
+                $dynSeed = (& $pwshCmd.Source -NoProfile -Command $fetchCmd 2>$null | Select-Object -Last 1).Trim()
+                if ($dynSeed -match '^[0-9a-fA-F]{16}$' -and -not $seedList.Contains($dynSeed)) {
+                    $seedList.Insert(0, $dynSeed)
+                }
+            }
+        } catch {}
+    }
+
+    $hosts = if ($channel -like "CN*") { @("cngfdispatch", "cnqddispatch") } else { @("oseurodispatch", "osusadispatch", "osasiadispatch") }
+
+    foreach ($seed in ($seedList | Select-Object -Unique)) {
+        foreach ($h in $hosts) {
+            try {
+                $url = "https://$h.yuanshen.com/query_cur_region?version=${channel}${scriptVer}&lang=1&platform=3&binary=1&time=260&channel_id=1&sub_channel_id=1&account_type=1&dispatchSeed=$seed&key_id=5"
+                $resp = Invoke-RestMethod -Uri $url -TimeoutSec 8 -ErrorAction Stop
+                if (-not $resp -or -not $resp.content) { continue }
+                $encBytes = [Convert]::FromBase64String($resp.content)
+                if ($encBytes.Length -lt 256 -or ($encBytes.Length % 256) -ne 0) { continue }
+
+                $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider(2048)
+                $rsa.FromXmlString($dispatchRsaXml)
+                $ms = New-Object System.IO.MemoryStream
+                for ($offset = 0; $offset -lt $encBytes.Length; $offset += 256) {
+                    $chunk = $encBytes[$offset..($offset + 255)]
+                    $dec = $rsa.Decrypt($chunk, $false)
+                    $ms.Write($dec, 0, $dec.Length)
+                }
+                $protoBytes = $ms.ToArray()
+                if ($protoBytes.Length -lt 64) { continue }
+
+                $root = Parse-ProtoFields -Buffer $protoBytes
+                if (-not $root.ContainsKey(3)) { continue }
+                $props = Parse-ProtoFields -Buffer $root[3]
+                if (-not $props.ContainsKey(22)) { continue }
+                $resVerProps = Parse-ProtoFields -Buffer $props[22]
+
+                $liveResRev  = $resVerProps[1]
+                $liveDataRev = $props[14]
+                $liveSilRev  = $props[18]
+                if ($liveResRev -gt 0) {
+                    return @{
+                        Success         = $true
+                        Source          = "HoYoverse Live Dispatch ($h)"
+                        Version         = "${channel}${scriptVer}"
+                        ResRevision     = "$liveResRev"
+                        SilenceRevision = "$liveSilRev"
+                        DataRevision    = "$liveDataRev"
+                    }
+                }
+            } catch {}
+        }
+    }
+
+    # Secondary Fallback: Check %USERPROFILE%\AppData\LocalLow\miHoYo\Genshin Impact\info.txt
+    $infoTxt = Join-Path $env:USERPROFILE "AppData\LocalLow\miHoYo\Genshin Impact\info.txt"
+    if (Test-Path -LiteralPath $infoTxt) {
+        try {
+            $firstLine = (Get-Content -LiteralPath $infoTxt -TotalCount 1 -ErrorAction Stop)
+            if ($firstLine -match '([A-Z]+Win[0-9.]+)_\d+_(\d+)_(\d+)_(\d+)_(\d+)') {
+                return @{
+                    Success         = $true
+                    Source          = "Local Client Log (info.txt)"
+                    Version         = $matches[1]
+                    ResRevision     = $matches[2]
+                    DataRevision    = $matches[3]
+                    SilenceRevision = $matches[4]
+                }
+            }
+        } catch {}
+    }
+
+    return @{ Success = $false }
+}
+
 function Process-RevisionManager {
     $CurrentLocation = (Get-Location).ProviderPath
     $persistentDir = Join-Path $CurrentLocation "GenshinImpact_Data\Persistent"
@@ -850,50 +1001,94 @@ function Process-RevisionManager {
     Write-Host "Directory: $persistentDir" -ForegroundColor DarkGray
     Write-Host ""
 
-    $resRevFile     = Join-Path $persistentDir "res_revision"
-    $silenceRevFile = Join-Path $persistentDir "silence_revision"
-    $dataRevFile    = Join-Path $persistentDir "data_revision"
-    $scriptRevFile  = Join-Path $persistentDir "ScriptVersion"
-    $channelFile    = Join-Path $persistentDir "ChannelName"
+    $resRevFile        = Join-Path $persistentDir "res_revision"
+    $resRevEternalFile = Join-Path $persistentDir "res_revision_eternal"
+    $silenceRevFile    = Join-Path $persistentDir "silence_revision"
+    $dataRevFile       = Join-Path $persistentDir "data_revision"
+    $scriptRevFile     = Join-Path $persistentDir "ScriptVersion"
+    $channelFile       = Join-Path $persistentDir "ChannelName"
 
-    $channel = if (Test-Path $channelFile) { (Get-Content $channelFile -Raw).Trim() } else { "OSRELWin" }
-    $script  = if (Test-Path $scriptRevFile) { (Get-Content $scriptRevFile -Raw).Trim() } else { "Unknown" }
-    $resRev  = if (Test-Path $resRevFile) { (Get-Content $resRevFile -Raw).Trim() } else { "Unknown" }
-    $silRev  = if (Test-Path $silenceRevFile) { (Get-Content $silenceRevFile -Raw).Trim() } else { "Unknown" }
-    $dataRev = if (Test-Path $dataRevFile) { (Get-Content $dataRevFile -Raw).Trim() } else { "Unknown" }
+    $channel    = if (Test-Path $channelFile)       { (Get-Content $channelFile -Raw).Trim() }       else { "OSRELWin" }
+    $script     = if (Test-Path $scriptRevFile)     { (Get-Content $scriptRevFile -Raw).Trim() }     else { "Unknown" }
+    $resRev     = if (Test-Path $resRevFile)        { (Get-Content $resRevFile -Raw).Trim() }        else { "Unknown" }
+    $resEternal = if (Test-Path $resRevEternalFile) { (Get-Content $resRevEternalFile -Raw).Trim() } else { "Unknown" }
+    $silRev     = if (Test-Path $silenceRevFile)    { (Get-Content $silenceRevFile -Raw).Trim() }    else { "Unknown" }
+    $dataRev    = if (Test-Path $dataRevFile)       { (Get-Content $dataRevFile -Raw).Trim() }       else { "Unknown" }
 
     $versionString = "${channel}${script}_R${resRev}_S${silRev}_D${dataRev}"
 
-    Write-Host "Current In-Game Version String:" -ForegroundColor White
+    Write-Host "Local Installed Version String:" -ForegroundColor White
     Write-Host "  $versionString" -ForegroundColor Green
     Write-Host ""
-    Write-Host "Revision Components:" -ForegroundColor White
-    Write-Host "  [R] Resource Revision : $resRev" -ForegroundColor Yellow -NoNewline
+    Write-Host "Local Revision Components:" -ForegroundColor White
+    Write-Host "  [R] Resource Revision : $resRev (eternal: $resEternal)" -ForegroundColor Yellow -NoNewline
     Write-Host " (res_versions_persist - cutscenes, audio, models)" -ForegroundColor DarkGray
     Write-Host "  [S] Silence Revision  : $silRev" -ForegroundColor Cyan -NoNewline
     Write-Host " (silence_data_versions - tiny hotfix blocks)" -ForegroundColor DarkGray
     Write-Host "  [D] Data Revision     : $dataRev" -ForegroundColor Magenta -NoNewline
     Write-Host " (data_versions - gameplay Lua, quest data)" -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "How this helps with minor patches:" -ForegroundColor Gray
-    Write-Host "When HoYoverse pushes a minor in-game patch, R/S/D are updated." -ForegroundColor Gray
-    Write-Host "Matching 'res_revision' to the server's new R-number tells the game that" -ForegroundColor Gray
-    Write-Host "resources are already up-to-date, completely skipping the 2,580 file integrity check." -ForegroundColor Gray
+
+    Write-Host "Querying live HoYoverse dispatch server for newest revisions..." -ForegroundColor DarkCyan
+    $live = Get-LiveServerRevisions -GameRoot $CurrentLocation
+    if ($live.Success) {
+        Write-Host "Live Server Revisions ($($live.Source)):" -ForegroundColor White
+        $rMatch = ($resRev -eq $live.ResRevision -and $resEternal -eq $live.ResRevision)
+        $rColor = if ($rMatch) { "Green" } else { "Yellow" }
+        $rTag   = if ($rMatch) { "[UP TO DATE]" } else { "[NEW SILENT UPDATE DETECTED!]" }
+        Write-Host "  Server [R] Resource : $($live.ResRevision) $rTag" -ForegroundColor $rColor
+        Write-Host "  Server [S] Silence  : $($live.SilenceRevision)" -ForegroundColor DarkGray
+        Write-Host "  Server [D] Data     : $($live.DataRevision)" -ForegroundColor DarkGray
+    } else {
+        Write-Host "Could not reach dispatch server (offline or seed changed). Manual entry available below." -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+    Write-Host "How this stops silent update redownloads (BEFORE or AFTER launching the game):" -ForegroundColor Gray
+    Write-Host "Syncing 'res_revision' + 'res_revision_eternal' to the server's latest R-number" -ForegroundColor Gray
+    Write-Host "and clearing any partial downloads tells the game your cutscenes are already on the" -ForegroundColor Gray
+    Write-Host "newest revision - so it only downloads the small gameplay delta (D/S) and skips the 45GB video check!" -ForegroundColor Gray
     Write-Host ""
     Write-Host "Options:"
-    Write-Host " [1] Update Resource Revision (R-number) manually"
-    Write-Host " [2] Return to Menu"
+    if ($live.Success) {
+        Write-Host " [1] Auto-Sync to Latest Server R-Revision ($($live.ResRevision)) + Clean & Sync Manifest (Recommended)" -ForegroundColor Green
+    } else {
+        Write-Host " [1] Auto-Fetch Latest Server R-Revision & Sync Manifest" -ForegroundColor Green
+    }
+    Write-Host " [2] Enter Resource Revision (R-number) manually"
+    Write-Host " [3] Return to Menu"
 
     $revChoice = Read-Host "`nEnter Choice"
     if ($revChoice -eq '1') {
-        $newR = Read-Host "Enter new Resource Revision (e.g., $resRev)"
+        if (-not $live.Success) {
+            Write-Host "Failed to fetch live server revision automatically. Please use [2] to enter it manually." -ForegroundColor Red
+            Read-Host "`nPress Enter to return to menu..."
+            return
+        }
+        $newR = $live.ResRevision
+        try {
+            $newR | Out-File -FilePath $resRevFile -Encoding ascii -Force -NoNewline
+            $newR | Out-File -FilePath $resRevEternalFile -Encoding ascii -Force -NoNewline
+            Write-Host "`nUpdated res_revision and res_revision_eternal to: $newR" -ForegroundColor Green
+            $synced = Sync-Manifest -Silent
+            Write-Host "Cleaned in-progress download artifacts and synchronized $synced manifest entries!" -ForegroundColor Cyan
+            Write-Host "You can now launch the game - it will skip cutscene redownloads." -ForegroundColor Green
+        } catch {
+            Write-Host "`nFailed to write res_revision: $_" -ForegroundColor Red
+        }
+        Read-Host "`nPress Enter to return to menu..."
+    }
+    elseif ($revChoice -eq '2') {
+        $defaultHint = if ($live.Success) { $live.ResRevision } else { $resRev }
+        $newR = Read-Host "Enter new Resource Revision (e.g., $defaultHint)"
         $newR = $newR.Trim().TrimStart('R').TrimStart('r')
         if ($newR -match '^\d+$') {
             try {
                 $newR | Out-File -FilePath $resRevFile -Encoding ascii -Force -NoNewline
-                $newR | Out-File -FilePath (Join-Path $persistentDir "res_revision_eternal") -Encoding ascii -Force -NoNewline
-                Write-Host "`nSuccessfully updated res_revision to: $newR" -ForegroundColor Green
-                Write-Host "The game will now consider resource revision $newR already installed." -ForegroundColor Cyan
+                $newR | Out-File -FilePath $resRevEternalFile -Encoding ascii -Force -NoNewline
+                Write-Host "`nSuccessfully updated res_revision and res_revision_eternal to: $newR" -ForegroundColor Green
+                $synced = Sync-Manifest -Silent
+                Write-Host "Cleaned in-progress download artifacts and synchronized $synced manifest entries!" -ForegroundColor Cyan
             } catch {
                 Write-Host "`nFailed to write res_revision: $_" -ForegroundColor Red
             }
@@ -985,7 +1180,7 @@ Get-GamePath
 do {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
-    Write-Host "   GenshinSlimmer v13" -ForegroundColor Yellow
+    Write-Host "   GenshinSlimmer v14" -ForegroundColor Yellow
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host "Mode: Manifest-Sync Engine + Persistent Support (7.x verified)" -ForegroundColor DarkGray
     Write-Host ""
@@ -1007,7 +1202,7 @@ do {
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     Write-Host " S. Scan & Analyze Game Folder" -ForegroundColor Yellow
     Write-Host " M. Sync Manifest (Fix In-Game Patcher / Stop Minor Update Redownloads)" -ForegroundColor Green
-    Write-Host " R. View / Update In-Game Revisions (R / S / D)" -ForegroundColor Cyan
+    Write-Host " R. View / Auto-Fetch Live Server Revisions (R / S / D)" -ForegroundColor Cyan
     Write-Host " P. Sync Launcher pkg_version (EXPERIMENTAL - try to stop launcher repair re-downloads)" -ForegroundColor Magenta
     Write-Host " U. UNLOCK / Restore Files & Clean Legacy ACLs" -ForegroundColor Yellow
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray

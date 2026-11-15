@@ -1,12 +1,14 @@
 <#
-    GenshinSlimmer v13 - WPF Dark GUI Edition
-    - Full dark-themed graphical interface for GenshinSlimmer v13.
-    - Supports all v13 features:
+    GenshinSlimmer v14 - WPF Dark GUI Edition
+    - Full dark-themed graphical interface for GenshinSlimmer v14.
+    - Supports all v14 features:
+      * Live Server Revision Auto-Fetch (queries HoYoverse query_cur_region directly before launching the game)
+      * Silent Manifest Update Recovery (PR #20 by DarRahman: syncs res_revision_eternal and clears Persistent\VideoAssets .tmp & *versions_remote* files)
       * Split Snezhnaya 7.0-7.1 (safe before 7.2 AQ) and Snezhnaya 7.2 (7.2 AQ)
       * Safe presets (Up to 7.1 + Boy / Girl / No Gender, keeping 7.2 AQ untouched)
       * 7.x Manifest Synchronization Engine (res_versions_persist + audio/persist variants, fileSize=0, md5 + 7.1 hash)
       * Experimental Launcher pkg_version Sync & Revert ([P])
-      * In-Game Revision Manager (R / S / D revisions)
+      * In-Game Revision Manager (R / S / D revisions with 1-click Auto-Fetch R)
       * Unlock / Restore & Legacy ACL Stripper ([U])
       * NTFS LZX Compression ([C])
     - Shares path.ini with GenshinSlimmer.ps1.
@@ -34,7 +36,7 @@ if (-not $isAdmin -or -not $isSta) {
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms, System.Drawing
 
-# --- CORE CONSTANTS & PATTERNS (v13) ---
+# --- CORE CONSTANTS & PATTERNS (v14) ---
 $script:EmptyMd5  = "d41d8cd98f00b204e9800998ecf8427e"
 $script:EmptyHash = "ef46db3751d8e999"
 
@@ -374,11 +376,154 @@ function Restore-PkgVersionEngine {
     return $restored
 }
 
+function Read-ProtoVarint {
+    param ([byte[]]$Buffer, [ref]$Pos)
+    [uint64]$result = 0
+    $shift = 0
+    while ($Pos.Value -lt $Buffer.Length) {
+        $b = $Buffer[$Pos.Value]
+        $Pos.Value++
+        $result = $result -bor ([uint64]($b -band 0x7F) -shl $shift)
+        if (($b -band 0x80) -eq 0) { return $result }
+        $shift += 7
+    }
+    return $result
+}
+
+function Parse-ProtoFields {
+    param ([byte[]]$Buffer)
+    $pos = 0
+    $fields = @{}
+    while ($pos -lt $Buffer.Length) {
+        $tag = Read-ProtoVarint -Buffer $Buffer -Pos ([ref]$pos)
+        $fieldNum = [int]($tag -shr 3)
+        $wireType = [int]($tag -band 7)
+        if ($wireType -eq 0) {
+            $fields[$fieldNum] = Read-ProtoVarint -Buffer $Buffer -Pos ([ref]$pos)
+        } elseif ($wireType -eq 2) {
+            $len = [int](Read-ProtoVarint -Buffer $Buffer -Pos ([ref]$pos))
+            if ($len -le 0 -or ($pos + $len) -gt $Buffer.Length) { break }
+            $fields[$fieldNum] = $Buffer[$pos..($pos + $len - 1)]
+            $pos += $len
+        } elseif ($wireType -eq 5) {
+            $pos += 4
+        } elseif ($wireType -eq 1) {
+            $pos += 8
+        } else {
+            break
+        }
+    }
+    return $fields
+}
+
+function Get-LiveServerRevisions {
+    param ([string]$GameRoot)
+    $persistentDir = Join-Path $GameRoot "GenshinImpact_Data\Persistent"
+    $channelFile   = Join-Path $persistentDir "ChannelName"
+    $scriptRevFile = Join-Path $persistentDir "ScriptVersion"
+    $configIniPath = Join-Path $GameRoot "config.ini"
+
+    $channel = if (Test-Path $channelFile) { (Get-Content $channelFile -Raw).Trim() } else { "OSRELWin" }
+    $scriptVer = if (Test-Path $scriptRevFile) { (Get-Content $scriptRevFile -Raw).Trim() } else { "" }
+    if (-not $scriptVer -and (Test-Path $configIniPath)) {
+        $iniMatch = Select-String -Path $configIniPath -Pattern '^\s*game_version\s*=\s*([0-9.]+)' | Select-Object -First 1
+        if ($iniMatch) { $scriptVer = $iniMatch.Matches[0].Groups[1].Value.Trim() }
+    }
+    if (-not $scriptVer) { $scriptVer = "7.2.0" }
+
+    $dispatchRsaXml = '<RSAKeyValue><Modulus>sJbFp3WcsiojjdQtVnTuvtawL2m4XxK93F6lCnFwcZqUP39txFGGlrogHMqreyawIUN7E5shtwGzigzjW8Ly5CryBJpXP3ehNTqJS7emb+9LlC19Oxa1eQuUQnatgcsd16DPH7kJ5JzN3vXnhvUyk4Qficdmm0uk7FRaNYFi7EJs4xyqFTrp3rDZ0dzBHumlIeK1om7FNt6Nyivgp+UybO7kl0NLFEeSlV4S+7ofitWQsO5xYqKAzSzz+KIRQcxJidGBlZ1JN/g5DPDpx/ztvOWYUlM7TYk6xN3focZpU0kBzAw/rn94yW9z8jpXfzk+MvWzVL/HAcPy4ySwkay0Nw==</Modulus><Exponent>AQAB</Exponent><P>19wQUISXtpnmCrEZfbyZ6IwOy8ZCVaVUtbTjVa8UyfNglzzJG3yzcXU3X35v5/HNCHaXbG2qcbQLThnHBA+obW3RDo+Q49V84Zh1fUNH0ONHHuC09kB//gHqzn/4nLf1aJ2O0NrMyrZNsZ0ZKUKQuVCqWjBOmTNUitcc8RpXZ8s=</P><Q>0W09POM/It7RoVGI+cfbbgSRmzFo9kzSp5lP7iZ81bnvUMabu2nv3OeGc3Pmdh1ZJFRw6iDM6VVbG0uz8g+f8+JT32XdqM7MJAmgfcYfTVBMiVnh330WNkeRrGWqQzB2f2Wr+0vJjU8CAAcOWDh0oNguJ1l1TSyKxqdL8FsA38U=</Q><DP>udt1AJ7psgOYmqQZ+rUlH6FYLAQsoWmVIk75XpE9KRUwmYdw8QXRy2LNpp9K4z7C9wKFJorWMsh+42Q2gzyoHHBtjEf4zPLIb8XBg3UmpKjMV73Kkiy/B4nHDr4I5YdO+iCPEy0RH4kQJFnLjEcQLT9TLgxh4G7d4B2PgdjYYTk=</DP><DQ>rdgiV2LETCvulBzcuYufqOn9/He9i4cl7p4jbathQQFBmSnkqGQ+Cn/eagQxsKaYEsJNoOxtbNu/7x6eVzeFLawYt38Vy0UuzFN5eC54WXNotTN5fk2VnKU4VYVnGrMmCobZhpbYzoZhQKiazby/g60wUtW9u7xXzqOdM/428Yk=</DQ><InverseQ>cGxDsdUW6B/B/nz9QgIhfnKrauCa8/SEVjzoHA6bdlLJNaw8Hlq2cW00ZcCGlXOXLCBBNl9Nn7rf00169TKFx2urNnEK52WKuOOPPDbDuEwAtuoarP8fx21TnF9d4E9ukmJ4ABx3oe8Y1ia/yoCCML3L4L6FbOpbu2vGi1L6zmo=</InverseQ><D>PMpalrBtVgQdoziUtvugKMA9fMT3PHt2MsO+Kx8sJ1+gg0952Sh7na3LWj4G1GlYHstdNj2kWJzUUsTnC/LLrPJ/yEfdmzKyo2FYXGGHgWcubH9QaiQCKv5qdormZhUnW9C3HOOVXUcBtCyRHKuSUqgcN1EWqIVc7CKJv3ugM1aEP5HF/IbDAmfKdllJd0tstKLP9AdA2v/5R+QpEFrG3QJ9TuY4tnGjLp80DEd0FwEk8cLKH5oO8RuLHudKdxJTwm7/jxgnwOuCVtmxcJigDlTPw0wO5oQyCg1YIVBWgRxGQRShofsGVZ3dRQVE+cNnUHgGaStWhETxrnzc6pLBqQ==</D></RSAKeyValue>'
+
+    $knownSeeds = @{
+        "7.2.0" = "018bc9560abc707f"
+        "7.0.0" = "d9f572e5464f160f"
+    }
+    $seedList = [System.Collections.Generic.List[string]]::new()
+    if ($knownSeeds.ContainsKey($scriptVer)) { $seedList.Add($knownSeeds[$scriptVer]) }
+    $seedList.Add("018bc9560abc707f")
+
+    if (-not $knownSeeds.ContainsKey($scriptVer)) {
+        try {
+            $pwshCmd = Get-Command pwsh -ErrorAction SilentlyContinue
+            if ($pwshCmd) {
+                $fetchCmd = '$m=Invoke-RestMethod "https://raw.githubusercontent.com/CollapseLauncher/CollapseLauncher-ReleaseRepo/main/metadata/v3/stable/config_master.json"; $rsa=[System.Security.Cryptography.RSA]::Create(); $rsa.FromXmlString([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($m.Key))); $b=Invoke-WebRequest "https://raw.githubusercontent.com/CollapseLauncher/CollapseLauncher-ReleaseRepo/main/metadata/v3/stable/config_GIGlb.json" -UseBasicParsing; $dec=$rsa.Decrypt($b.Content[0..($m.BitSize-1)],[Security.Cryptography.RSAEncryptionPadding]::Pkcs1); $ms=[IO.MemoryStream]::new(); $ms.Write($dec,0,$dec.Length); $ms.Write($b.Content,$m.BitSize,$b.Content.Length-$m.BitSize); $ms.Position=0; $br=[IO.Compression.BrotliStream]::new($ms,[IO.Compression.CompressionMode]::Decompress); $sr=[IO.StreamReader]::new($br); if($sr.ReadToEnd() -match "\"ProtoDispatchKey\"\s*:\s*\"([^\"]+)\""){$matches[1]}'
+                $dynSeed = (& $pwshCmd.Source -NoProfile -Command $fetchCmd 2>$null | Select-Object -Last 1).Trim()
+                if ($dynSeed -match '^[0-9a-fA-F]{16}$' -and -not $seedList.Contains($dynSeed)) {
+                    $seedList.Insert(0, $dynSeed)
+                }
+            }
+        } catch {}
+    }
+
+    $hosts = if ($channel -like "CN*") { @("cngfdispatch", "cnqddispatch") } else { @("oseurodispatch", "osusadispatch", "osasiadispatch") }
+
+    foreach ($seed in ($seedList | Select-Object -Unique)) {
+        foreach ($h in $hosts) {
+            try {
+                $url = "https://$h.yuanshen.com/query_cur_region?version=${channel}${scriptVer}&lang=1&platform=3&binary=1&time=260&channel_id=1&sub_channel_id=1&account_type=1&dispatchSeed=$seed&key_id=5"
+                $resp = Invoke-RestMethod -Uri $url -TimeoutSec 8 -ErrorAction Stop
+                if (-not $resp -or -not $resp.content) { continue }
+                $encBytes = [Convert]::FromBase64String($resp.content)
+                if ($encBytes.Length -lt 256 -or ($encBytes.Length % 256) -ne 0) { continue }
+
+                $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider(2048)
+                $rsa.FromXmlString($dispatchRsaXml)
+                $ms = New-Object System.IO.MemoryStream
+                for ($offset = 0; $offset -lt $encBytes.Length; $offset += 256) {
+                    $chunk = $encBytes[$offset..($offset + 255)]
+                    $dec = $rsa.Decrypt($chunk, $false)
+                    $ms.Write($dec, 0, $dec.Length)
+                }
+                $protoBytes = $ms.ToArray()
+                if ($protoBytes.Length -lt 64) { continue }
+
+                $root = Parse-ProtoFields -Buffer $protoBytes
+                if (-not $root.ContainsKey(3)) { continue }
+                $props = Parse-ProtoFields -Buffer $root[3]
+                if (-not $props.ContainsKey(22)) { continue }
+                $resVerProps = Parse-ProtoFields -Buffer $props[22]
+
+                $liveResRev  = $resVerProps[1]
+                $liveDataRev = $props[14]
+                $liveSilRev  = $props[18]
+                if ($liveResRev -gt 0) {
+                    return @{
+                        Success         = $true
+                        Source          = "Live Server ($h)"
+                        Version         = "${channel}${scriptVer}"
+                        ResRevision     = "$liveResRev"
+                        SilenceRevision = "$liveSilRev"
+                        DataRevision    = "$liveDataRev"
+                    }
+                }
+            } catch {}
+        }
+    }
+
+    $infoTxt = Join-Path $env:USERPROFILE "AppData\LocalLow\miHoYo\Genshin Impact\info.txt"
+    if (Test-Path -LiteralPath $infoTxt) {
+        try {
+            $firstLine = (Get-Content -LiteralPath $infoTxt -TotalCount 1 -ErrorAction Stop)
+            if ($firstLine -match '([A-Z]+Win[0-9.]+)_\d+_(\d+)_(\d+)_(\d+)_(\d+)') {
+                return @{
+                    Success         = $true
+                    Source          = "Local Log (info.txt)"
+                    Version         = $matches[1]
+                    ResRevision     = $matches[2]
+                    DataRevision    = $matches[3]
+                    SilenceRevision = $matches[4]
+                }
+            }
+        } catch {}
+    }
+
+    return @{ Success = $false }
+}
+
 # --- XAML UI DEFINITION ---
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="GenshinSlimmer v13 - Manifest-Sync &amp; Asset Optimizer"
+        Title="GenshinSlimmer v14 - Manifest-Sync &amp; Asset Optimizer"
         Width="1040" Height="780" MinWidth="920" MinHeight="680"
         WindowStartupLocation="CenterScreen"
         Background="#0D1117" Foreground="#E6EDF3"
@@ -451,10 +596,10 @@ function Restore-PkgVersionEngine {
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="GenshinSlimmer" FontSize="20" FontWeight="Bold" Foreground="#F0F6FC"/>
                         <Border Background="#238636" CornerRadius="4" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="v13 (7.2 Ready)" FontSize="11" FontWeight="Bold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="v14 (7.2 Ready)" FontSize="11" FontWeight="Bold" Foreground="#FFFFFF"/>
                         </Border>
                     </StackPanel>
-                    <TextBlock Text="Manifest-Sync Engine  |  Split 7.1 / 7.2 Snezhnaya  |  Launcher pkg_version Sync" FontSize="11.5" Foreground="#8B949E"/>
+                    <TextBlock Text="Live Server Revision Auto-Fetch  |  Manifest-Sync Engine  |  Split 7.1 / 7.2 Snezhnaya" FontSize="11.5" Foreground="#8B949E"/>
                 </StackPanel>
             </StackPanel>
 
@@ -512,10 +657,11 @@ function Restore-PkgVersionEngine {
                         <TextBlock Text="IN-GAME REVISION MANAGER (R / S / D)" FontSize="10.5" FontWeight="Bold" Foreground="#8B949E"/>
                         <TextBlock x:Name="LblVersionString" Text="OSRELWin7.2.0_R..._S..._D..." FontSize="13.5" FontWeight="Bold" Foreground="#E3B341" Margin="0,4,0,2"/>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="Resource Rev (R):" FontSize="11.5" Foreground="#8B949E" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBox x:Name="TxtResRevision" Width="90" Background="#0D1117" Foreground="#E6EDF3" BorderBrush="#30363D"
+                            <TextBlock Text="Res Rev (R):" FontSize="11.5" Foreground="#8B949E" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBox x:Name="TxtResRevision" Width="82" Background="#0D1117" Foreground="#E6EDF3" BorderBrush="#30363D"
                                      BorderThickness="1" Padding="5,2" FontSize="12"/>
-                            <Button x:Name="BtnSaveRevision" Style="{StaticResource BtnBase}" Content="Update R" Padding="8,2" FontSize="11.5" Margin="6,0,0,0"/>
+                            <Button x:Name="BtnSaveRevision" Style="{StaticResource BtnBase}" Content="Update R" Padding="7,2" FontSize="11.5" Margin="5,0,0,0"/>
+                            <Button x:Name="BtnFetchRevision" Style="{StaticResource BtnBase}" Content="Auto-Fetch R" Background="#238636" BorderBrush="#2EA043" Padding="8,2" FontSize="11.5" Margin="5,0,0,0"/>
                         </StackPanel>
                     </StackPanel>
                 </Grid>
@@ -615,6 +761,7 @@ $LblPkgVersionStatus = $window.FindName("LblPkgVersionStatus")
 $LblVersionString    = $window.FindName("LblVersionString")
 $TxtResRevision      = $window.FindName("TxtResRevision")
 $BtnSaveRevision     = $window.FindName("BtnSaveRevision")
+$BtnFetchRevision    = $window.FindName("BtnFetchRevision")
 $BtnPresetBoy        = $window.FindName("BtnPresetBoy")
 $BtnPresetGirl       = $window.FindName("BtnPresetGirl")
 $BtnPresetNoGender   = $window.FindName("BtnPresetNoGender")
@@ -912,11 +1059,40 @@ $BtnSaveRevision.Add_Click({
     }
     try {
         $newR | Out-File -FilePath $resRevFile -Encoding ascii -Force -NoNewline
-        $newR | Out-File -FilePath (Join-Path $gameRoot "GenshinImpact_Data/Persistent/res_revision_eternal") -Encoding ascii -Force -NoNewline
-        Write-GuiLog "Updated res_revision to R$newR."
+        $newR | Out-File -FilePath (Join-Path $gameRoot "GenshinImpact_Data\Persistent\res_revision_eternal") -Encoding ascii -Force -NoNewline
+        $synced = Sync-ManifestEngine -GameRoot $gameRoot
+        Write-GuiLog "Updated res_revision + res_revision_eternal to R$newR, cleaned .tmp/remote files, and synced $synced manifest entries."
         Refresh-GameScan
     } catch {
         Write-GuiLog "Failed to write res_revision: $_"
+    }
+})
+
+$BtnFetchRevision.Add_Click({
+    $gameRoot = $TxtGamePath.Text.Trim()
+    if (-not $gameRoot -or -not (Test-Path (Join-Path $gameRoot "GenshinImpact_Data"))) {
+        [System.Windows.MessageBox]::Show("Please select a valid Genshin Impact game directory first.", "Invalid Game Path", "OK", "Warning") | Out-Null
+        return
+    }
+    Write-GuiLog "Querying HoYoverse live dispatch server for latest revisions..."
+    $live = Get-LiveServerRevisions -GameRoot $gameRoot
+    if (-not $live.Success) {
+        Write-GuiLog "Could not reach dispatch server automatically. Enter R-number manually and click Update R."
+        [System.Windows.MessageBox]::Show("Could not fetch live revision from server (check connection or enter manually).", "Auto-Fetch Failed", "OK", "Warning") | Out-Null
+        return
+    }
+    $newR = $live.ResRevision
+    $TxtResRevision.Text = $newR
+    try {
+        $resRevFile        = Join-Path $gameRoot "GenshinImpact_Data\Persistent\res_revision"
+        $resRevEternalFile = Join-Path $gameRoot "GenshinImpact_Data\Persistent\res_revision_eternal"
+        $newR | Out-File -FilePath $resRevFile -Encoding ascii -Force -NoNewline
+        $newR | Out-File -FilePath $resRevEternalFile -Encoding ascii -Force -NoNewline
+        $synced = Sync-ManifestEngine -GameRoot $gameRoot
+        Write-GuiLog "Auto-Fetched from $($live.Source): Server R$newR (S$($live.SilenceRevision) / D$($live.DataRevision)). Updated res_revision + res_revision_eternal, cleaned .tmp/remote files, and synced $synced manifest entries!"
+        Refresh-GameScan
+    } catch {
+        Write-GuiLog "Failed to apply fetched revision R${newR}: $_"
     }
 })
 
@@ -1046,7 +1222,7 @@ $BtnCompress.Add_Click({
 })
 
 $window.Add_ContentRendered({
-    Write-GuiLog "GenshinSlimmer v13 GUI ready."
+    Write-GuiLog "GenshinSlimmer v14 GUI ready."
     if ($TxtGamePath.Text) { Refresh-GameScan }
 })
 
