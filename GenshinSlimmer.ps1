@@ -1,4 +1,4 @@
-﻿<#
+<#
     GenshinSlimmer v14
     - Stubs cutscene videos and audio cache to 0KB to save 30-40+ GB of disk space.
     - Manifest Synchronization Engine: Directly synchronizes Genshin's internal
@@ -25,11 +25,14 @@
       Snezhnaya 7.0-7.1 (option 8, included in STUB ALL) and Snezhnaya 7.2 (option 8b, kept separate
       so players can stub everything up to 7.1 before finishing the 7.2 Archon Quest).
     - Dedicated gender options: Boy Traveler only, Girl Traveler only, or bulk.
+    - Optional Japanese voice-over audio stubbing with language-specific manifest sync.
+    - Japanese voice-over stubbing and manifest integration contributed by Rueben Gill.
     - Handles both .usm and .usm.bak files across StreamingAssets and Persistent folders.
     - Includes interactive game folder scan/analysis mode.
     - Includes LZX NTFS compression.
     
-    Author: dnullptr
+    Original author: dnullptr
+    Japanese audio contribution: Rueben Gill
 #>
 
 # --- SELF-ELEVATION (REQUIRE ADMIN) ---
@@ -60,12 +63,17 @@ $UGCSearchPaths = @(
     "GenshinImpact_Data\StreamingAssets\AudioAssets\BeyondUGC",
     "GenshinImpact_Data\Persistent\AudioAssets\BeyondUGC"
 )
+# Japanese voice packs live in Persistent, while their manifest names are Japanese/<file>.
+$JapaneseAudioSearchPaths = @(
+    "GenshinImpact_Data\Persistent\AudioAssets\Japanese"
+)
 
 function Get-GamePath {
     Clear-Host
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host "   GenshinSlimmer v14" -ForegroundColor Yellow
     Write-Host "   Created by dnullptr" -ForegroundColor DarkGray
+    Write-Host "   Japanese audio contribution by Rueben Gill" -ForegroundColor DarkGray
     Write-Host "=========================================" -ForegroundColor Cyan
     Write-Host ""
 
@@ -161,7 +169,7 @@ function Get-ManifestCandidates {
 function Get-StubbedFileMap {
     param ([string]$GameRoot)
     # Returns hashtable with two lookup styles:
-    #  - Exact keys "StandaloneWindows64/<file>" and "BeyondUGC/<file>" (legacy)
+    #  - Exact keys for video, UGC, and "Japanese/<file>" audio assets
     #  - Filename-only keys "<file>" for suffix matching (7.1 path-prefix robust)
     $exactMap = @{}
     $nameMap = @{}
@@ -191,6 +199,20 @@ function Get-StubbedFileMap {
                 $cleanName = if ($f.Name -like "*.bak") { $f.Name.Substring(0, $f.Name.Length - 4) } else { $f.Name }
                 $exactMap["BeyondUGC/$cleanName"] = $true
                 $nameMap[$cleanName] = $true
+            }
+        }
+    }
+    # Keep Japanese entries exact-path-only; other language packs reuse the same numbered filenames.
+    foreach ($relPath in $JapaneseAudioSearchPaths) {
+        $fullPath = Join-Path $GameRoot $relPath
+        if (Test-Path $fullPath) {
+            $files = Get-ChildItem -Path $fullPath -File -ErrorAction SilentlyContinue | Where-Object { $_.Length -eq 0 }
+            if (-not $files) {
+                $files = Get-ChildItem -Path $fullPath -File -ErrorAction SilentlyContinue | Where-Object { $_.Length -lt 1024 }
+            }
+            foreach ($f in $files) {
+                $cleanName = if ($f.Name -like "*.bak") { $f.Name.Substring(0, $f.Name.Length - 4) } else { $f.Name }
+                $exactMap["Japanese/$cleanName"] = $true
             }
         }
     }
@@ -239,8 +261,10 @@ function Sync-Manifest {
     $maps = Get-StubbedFileMap -GameRoot $CurrentLocation
     $stubbedMap = $maps.Exact
     $stubbedNames = $maps.Names
+    $japaneseStubbedNames = @($stubbedMap.Keys | Where-Object { $_ -like "Japanese/*" })
+    $stubbedFileCount = $stubbedNames.Count + $japaneseStubbedNames.Count
 
-    if ($stubbedNames.Count -eq 0 -and -not $Silent) {
+    if ($stubbedFileCount -eq 0 -and -not $Silent) {
         Write-Host "No stubbed (0KB) files found. Stub files first, then sync." -ForegroundColor Yellow
     }
 
@@ -309,11 +333,11 @@ function Sync-Manifest {
         foreach ($kv in $perFileCounts.GetEnumerator()) {
             Write-Host ("  {0} : {1} entries" -f (Split-Path $kv.Key -Leaf), $kv.Value) -ForegroundColor DarkGray
         }
-        if ($totalPatched -eq 0 -and $stubbedNames.Count -gt 0) {
-            Write-Host "`nWARNING: Found $($stubbedNames.Count) stubbed files but patched 0 manifest entries." -ForegroundColor Yellow
+        if ($totalPatched -eq 0 -and $stubbedFileCount -gt 0) {
+            Write-Host "`nWARNING: Found $stubbedFileCount stubbed files but patched 0 manifest entries." -ForegroundColor Yellow
             Write-Host "The manifest remoteName paths may have changed in 7.1." -ForegroundColor Yellow
             Write-Host "Sample stubbed names:" -ForegroundColor DarkGray
-            $stubbedNames.Keys | Select-Object -First 5 | ForEach-Object { Write-Host "  - $_" -ForegroundColor DarkGray }
+            (@($stubbedNames.Keys) + $japaneseStubbedNames) | Select-Object -First 5 | ForEach-Object { Write-Host "  - $_" -ForegroundColor DarkGray }
             Write-Host "Check res_versions_persist remoteName format manually." -ForegroundColor DarkGray
         } else {
             Write-Host "Success! Synchronized $totalPatched stubbed assets across $($manifestPaths.Count) manifest(s)." -ForegroundColor Green
@@ -362,9 +386,15 @@ function Restore-Manifest {
     if ($lookupExact.Count -eq 0) { return 0 }
 
     $restoreNames = @{}
+    $restoreExact = @{}
     foreach ($fn in $FileNamesToRestore) {
         $cleanName = if ($fn -like "*.bak") { $fn.Substring(0, $fn.Length - 4) } else { $fn }
-        $restoreNames[$cleanName] = $true
+        # A path-qualified Japanese key must not fall back to another locale's same-named entry.
+        if ($cleanName.Contains('/') -or $cleanName.Contains('\')) {
+            $restoreExact[$cleanName.Replace('\', '/')] = $true
+        } else {
+            $restoreNames[$cleanName] = $true
+        }
     }
 
     $totalRestored = 0
@@ -378,13 +408,14 @@ function Restore-Manifest {
             if ($line -match '"remoteName":\s*"([^"]+)"') {
                 $remoteName = $matches[1]
                 $fileName = $remoteName.Split('/')[-1]
-                $shouldRestore = $restoreNames.ContainsKey($fileName)
+                $isExactPath = $restoreExact.ContainsKey($remoteName)
+                $shouldRestore = $isExactPath -or $restoreNames.ContainsKey($fileName)
                 if ($shouldRestore) {
                     if ($lookupExact.ContainsKey($remoteName)) {
                         $output.Add($lookupExact[$remoteName])
                         $restoredCount++
                         $matched = $true
-                    } elseif ($lookupByName.ContainsKey($fileName)) {
+                    } elseif (-not $isExactPath -and $lookupByName.ContainsKey($fileName)) {
                         $output.Add($lookupByName[$fileName])
                         $restoredCount++
                         $matched = $true
@@ -625,6 +656,15 @@ function Get-MatchingFiles {
     return $AllFiles
 }
 
+function Get-ManifestRestoreKey {
+    param ([System.IO.FileInfo]$File)
+    $japanesePath = Join-Path (Get-Location).ProviderPath $JapaneseAudioSearchPaths[0]
+    if ($File.DirectoryName -ieq $japanesePath) {
+        return "Japanese/$($File.Name)"
+    }
+    return $File.Name
+}
+
 function Process-Scan {
     $CurrentLocation = Get-Location
     Write-Host "`n=========================================" -ForegroundColor Cyan
@@ -645,13 +685,20 @@ function Process-Scan {
         "8b. Snezhnaya (7.2)"    = $PatternsSnezhnaya72
         "9. Events & Misc"       = $PatternsMisc
         "10. UGC Cache"          = @("*")
+        "11. Japanese Voice-over" = @("*")
     }
 
     $totalGlobalBytes = 0
     $totalGlobalCount = 0
 
     foreach ($cat in $categories.Keys) {
-        $paths = if ($cat -like "*UGC*") { $UGCSearchPaths } else { $VideoSearchPaths }
+        $paths = if ($cat -like "*UGC*") {
+            $UGCSearchPaths
+        } elseif ($cat -like "*Japanese*") {
+            $JapaneseAudioSearchPaths
+        } else {
+            $VideoSearchPaths
+        }
         $files = Get-MatchingFiles $paths $categories[$cat]
         
         $stats = $files | Measure-Object -Property Length -Sum
@@ -726,7 +773,8 @@ function Process-Stubbing {
                 try {
                     Remove-FileLock -Path $file.FullName
                     Remove-Item $file.FullName -Force -ErrorAction SilentlyContinue
-                    $deletedNames += $file.Name
+                    $restoreKey = Get-ManifestRestoreKey -File $file
+                    $deletedNames += $restoreKey
                     Write-Host "Removed stub: $($file.Name)" -ForegroundColor DarkGray
                 } catch { Write-Host "Error removing: $($file.Name)" -ForegroundColor Red }
             }
@@ -757,6 +805,9 @@ function Process-Stubbing {
     Write-Host ""
     Write-Host "This will STUB (0KB) files and synchronize the game's manifest (res_versions_persist)." -ForegroundColor Cyan
     Write-Host "The in-game patcher will recognize these stubs as valid and will not redownload them." -ForegroundColor Gray
+    if ($Description -eq "Japanese Voice-over Audio") {
+        Write-Host "WARNING: This removes all playable-character dialogue, both in and out of cutscenes, until the audio is restored or downloaded again." -ForegroundColor Yellow
+    }
     $confirmation = Read-Host "`nProceed? (Y/N)"
     
     if ($confirmation -eq 'Y' -or $confirmation -eq 'y') {
@@ -828,7 +879,8 @@ function Process-UnlockOnly {
             try {
                 Remove-FileLock -Path $file.FullName
                 Remove-Item $file.FullName -Force -ErrorAction SilentlyContinue
-                $deletedNames += $file.Name
+                $restoreKey = Get-ManifestRestoreKey -File $file
+                $deletedNames += $restoreKey
                 Write-Host "Removed: $($file.Name)" -ForegroundColor DarkGray
             } catch { Write-Host "Error deleting: $($file.Name)" -ForegroundColor Red }
         }
@@ -1199,6 +1251,7 @@ do {
     Write-Host "10. UGC Cache (BeyondUGC)"
     Write-Host "11. Stub 'Boy' Traveler Videos Only" -ForegroundColor Cyan
     Write-Host "12. Stub 'Girl' Traveler Videos Only" -ForegroundColor Magenta
+    Write-Host "14. Japanese Voice-over Audio (Persistent)" -ForegroundColor Cyan
     Write-Host "-----------------------------------------" -ForegroundColor DarkGray
     Write-Host " S. Scan & Analyze Game Folder" -ForegroundColor Yellow
     Write-Host " M. Sync Manifest (Fix In-Game Patcher / Stop Minor Update Redownloads)" -ForegroundColor Green
@@ -1250,12 +1303,14 @@ do {
         '10'  { $selection = Get-MatchingFiles $UGCSearchPaths @("*"); $desc = "UGC Cache" }
         '11'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsBoy; $desc = "Boy Traveler Videos Only" }
         '12'  { $selection = Get-MatchingFiles $VideoSearchPaths $PatternsGirl; $desc = "Girl Traveler Videos Only" }
+        '14'  { $selection = Get-MatchingFiles $JapaneseAudioSearchPaths @("*"); $desc = "Japanese Voice-over Audio" }
 
         'U' {
             Write-Host "`nScanning for stubbed files..." -ForegroundColor Cyan
             $AllPatterns = $AllRegionPatterns + $PatternsSnezhnaya72 + $PatternsBoy + $PatternsGirl
             $selection += Get-MatchingFiles $VideoSearchPaths $AllPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
+            $selection += Get-MatchingFiles $JapaneseAudioSearchPaths @("*")
             $desc = "UNLOCK / RESTORE ALL"
         }
         'u' {
@@ -1263,6 +1318,7 @@ do {
             $AllPatterns = $AllRegionPatterns + $PatternsSnezhnaya72 + $PatternsBoy + $PatternsGirl
             $selection += Get-MatchingFiles $VideoSearchPaths $AllPatterns
             $selection += Get-MatchingFiles $UGCSearchPaths @("*")
+            $selection += Get-MatchingFiles $JapaneseAudioSearchPaths @("*")
             $desc = "UNLOCK / RESTORE ALL"
         }
 
@@ -1299,7 +1355,7 @@ do {
         'q' { break }
     }
 
-    if ($choice -in '1','2','3','4','5','6','7','8','8b','8B','8.2','13','9','10','11','12','G','g','B','b','0','U','u') {
+    if ($choice -in '1','2','3','4','5','6','7','8','8b','8B','8.2','13','9','10','11','12','14','G','g','B','b','0','U','u') {
         if ($choice -in 'U','u') {
             Process-UnlockOnly -FilesToUnlock $selection -Description $desc
         } else {
